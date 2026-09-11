@@ -1,0 +1,47 @@
+schema_version: 1
+
+# Re-read on every page interaction: no image rebuild is needed.
+# Columns must exist in the loaded analysis tables. No Python expressions.
+# Leading/subleading lepton columns are derived from the saved pair on load.
+# Slider ranges cover the selected samples; initially the whole range is selected.
+variables:
+  mll:
+    column: mll
+    label: Dilepton invariant mass [GeV]
+    description: Invariant mass of the selected lepton pair.
+    step: 1.0
+  ptll:
+    column: ptll
+    label: Dilepton pT [GeV]
+    description: Magnitude of the vector sum of the two lepton transverse momenta.
+    step: 1.0
+  leading_lepton_pt:
+    column: leading_lepton_pt
+    label: Leading lepton pT [GeV]
+    description: Higher-pT lepton of the selected pair. Equal pT keeps the stored order.
+    step: 1.0
+  subleading_lepton_pt:
+    column: subleading_lepton_pt
+    label: Subleading lepton pT [GeV]
+    description: Lower-pT lepton of the selected pair. Equal pT keeps the stored order.
+    step: 1.0
+  leading_lepton_eta:
+    column: leading_lepton_eta
+    label: Leading lepton eta
+    description: Signed pseudorapidity of the higher-pT lepton in the selected pair.
+    step: 0.1
+  subleading_lepton_eta:
+    column: subleading_lepton_eta
+    label: Subleading lepton eta
+    description: Signed pseudorapidity of the lower-pT lepton in the selected pair.
+    step: 0.1
+
+# Used for prepared datasets and old/custom runs without a matching process ID.
+default_variables: &dilepton [mll, ptll, leading_lepton_pt, subleading_lepton_pt, leading_lepton_eta, subleading_lepton_eta]
+processes:
+  dy_ll: *dilepton
+  dy_ee: *dilepton
+  dy_mumu: *dilepton
+  ee_mumu: *dilepton
+  ee_zh_mumu: *dilepton
+  ee_ww_mumu: *dilepton

@@ -1,0 +1,9 @@
+.git
+.venv
+.pytest_cache
+.ruff_cache
+__pycache__
+*.egg-info
+runs
+output
+notebooks/.ipynb_checkpoints

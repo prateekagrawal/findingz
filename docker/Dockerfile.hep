@@ -1,0 +1,92 @@
+FROM rootproject/root:6.34.00-ubuntu24.04
+
+ARG MG5_REF=v3.5.13
+ARG DEBIAN_FRONTEND=noninteractive
+
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        curl \
+        file \
+        gfortran \
+        git \
+        gzip \
+        libboost-all-dev \
+        libbz2-dev \
+        liblzma-dev \
+        make \
+        patch \
+        pkg-config \
+        python3-dev \
+        python3-six \
+        python3-venv \
+        rsync \
+        wget \
+        xz-utils \
+        zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /opt/hep \
+    && git clone --depth 1 --branch "${MG5_REF}" \
+        https://github.com/mg5amcnlo/mg5amcnlo.git /opt/hep/mg5
+
+# MadGraph selects interface versions it supports. These are separate cached layers
+# and run only when the instructor builds the course image.
+RUN printf 'install pythia8\nquit\n' > /tmp/install-pythia.mg5 \
+    && python3 /opt/hep/mg5/bin/mg5_aMC /tmp/install-pythia.mg5 \
+    && test -x /opt/hep/mg5/bin/mg5_aMC \
+    && test -d /opt/hep/mg5/HEPTools/pythia8 \
+    && rm /tmp/install-pythia.mg5
+
+RUN printf 'install Delphes\nquit\n' > /tmp/install-delphes.mg5 \
+    && python3 /opt/hep/mg5/bin/mg5_aMC /tmp/install-delphes.mg5 \
+    && test -x /opt/hep/mg5/Delphes/DelphesHepMC2 \
+    && rm /tmp/install-delphes.mg5
+
+WORKDIR /opt/findingz
+COPY pyproject.toml LICENSE /opt/findingz/
+COPY findingz/__init__.py /opt/findingz/findingz/
+
+RUN python3 -m venv /opt/findingz-venv \
+    && /opt/findingz-venv/bin/python -m pip install --no-cache-dir --upgrade pip \
+    && /opt/findingz-venv/bin/python -m pip install --no-cache-dir '.[hep,notebook]'
+
+COPY . /opt/findingz
+
+RUN /opt/findingz-venv/bin/python -m pip install --no-cache-dir --no-deps -e . \
+    && /opt/findingz-venv/bin/python -m findingz.notebook_kernel --install \
+    && chmod 0755 /opt/findingz/scripts/start_jupyter.sh
+
+# The official ROOT image already supplies the non-root ubuntu account as UID 1000,
+# which also maps cleanly to the default LSIT/JupyterHub-style user.
+RUN mkdir -p /workspace/runs /workspace/notebooks /course-config /data \
+    && cp /opt/findingz/config/course_catalog.yaml /course-config/course_catalog.yaml \
+    && cp /opt/findingz/config/analysis_variables.yaml /course-config/analysis_variables.yaml \
+    && cp -R /opt/findingz/data/. /data/ \
+    && chown -R ubuntu:ubuntu /workspace /opt/findingz /course-config /data
+
+ENV PATH="/opt/findingz-venv/bin:/opt/hep/mg5/bin:${PATH}" \
+    PYTHONPATH="/workspace" \
+    FINDINGZ_MG5="/opt/hep/mg5/bin/mg5_aMC" \
+    FINDINGZ_PYTHIA8_DIR="/opt/hep/mg5/HEPTools/pythia8" \
+    FINDINGZ_DELPHES_DIR="/opt/hep/mg5/Delphes" \
+    FINDINGZ_CATALOG_PATH="/course-config/course_catalog.yaml" \
+    FINDINGZ_RUN_ROOT="/workspace/runs" \
+    FINDINGZ_HEP_IMAGE_ID="findingz-hep-mg5-3.5.13-root-6.34.00"
+
+# Native MadGraph PostScript diagrams are rendered to browser-friendly PNGs.
+RUN apt-get update && apt-get install -y --no-install-recommends ghostscript \
+    && rm -rf /var/lib/apt/lists/*
+
+USER ubuntu
+WORKDIR /workspace
+EXPOSE 8501
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl --fail --silent http://localhost:8501/_stcore/health || exit 1
+
+CMD ["python", "-m", "streamlit", "run", "/opt/findingz/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--browser.gatherUsageStats=false", "--client.toolbarMode=minimal"]

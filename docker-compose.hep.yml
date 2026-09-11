@@ -1,0 +1,50 @@
+services:
+  findingz:
+    platform: linux/amd64
+    image: findingz-hep:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.hep
+    ports:
+      - "127.0.0.1:8501:8501"
+    volumes:
+      - findingz-runs:/workspace/runs
+      - findingz-catalog:/course-config
+      - findingz-data:/data
+      - findingz-notebooks:/workspace/notebooks
+    environment:
+      MPLCONFIGDIR: /tmp/matplotlib
+      FINDINGZ_CATALOG_PATH: /course-config/course_catalog.yaml
+      FINDINGZ_RUN_ROOT: /workspace/runs
+      FINDINGZ_JUPYTER_URL: http://localhost:8889/lab/tree/notebooks/06_sample_analysis.ipynb
+    init: true
+
+  jupyter:
+    platform: linux/amd64
+    image: findingz-hep:local
+    profiles: ["advanced"]
+    ports:
+      - "127.0.0.1:8889:8888"
+    volumes:
+      - findingz-runs:/workspace/runs
+      - findingz-catalog:/course-config
+      - findingz-data:/data
+      - findingz-notebooks:/workspace/notebooks
+    environment:
+      MPLCONFIGDIR: /tmp/matplotlib
+      FINDINGZ_CATALOG_PATH: /course-config/course_catalog.yaml
+      FINDINGZ_RUN_ROOT: /workspace/runs
+    init: true
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8888/api"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+    command: ["/opt/findingz/scripts/start_jupyter.sh"]
+
+volumes:
+  findingz-runs:
+  findingz-catalog:
+  findingz-data:
+  findingz-notebooks:

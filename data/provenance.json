@@ -1,0 +1,15 @@
+{
+  "dataset_name": "Finding Z synthetic starter data",
+  "generator": "scripts/generate_demo_data.py",
+  "seed": 225,
+  "status": "synthetic dilepton teaching data",
+  "signal_definition": "Z-like neutral-current Drell-Yan proxy",
+  "limitations": [
+    "not LHC data",
+    "not detector simulation",
+    "not generated from a complete matrix element",
+    "background composition is schematic",
+    "angular asymmetry is illustrative rather than fitted"
+  ],
+  "recommended_replacement": "A small documented derivative of an ATLAS or CMS open dilepton dataset"
+}

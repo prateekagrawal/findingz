@@ -1,0 +1,131 @@
+schema_version: 1
+title: Finding Z — PHYS 225A
+
+# Any dataset, model, collider, or process can use:
+#   enabled: false
+#   available_from: 2026-10-15
+#   available_until: 2026-11-15
+
+features:
+  # Instructor-only smoke-test/fallback. Set true to expose it temporarily;
+  # normal student simulation starts with the MadGraph collider workflow.
+  toy_generator: false
+  prepared_data_analysis: true
+  madgraph_only: true
+  full_pipeline: true
+
+datasets: {}
+
+models:
+  sm:
+    label: Standard Model (tree level)
+    madgraph_name: sm
+    enabled: true
+  loop_sm:
+    label: Standard Model (loop-ready UFO)
+    madgraph_name: loop_sm
+    # Keep installed for instructor tests; do not present it as a standard course choice.
+    enabled: false
+  blackbox_1:
+    label: Black-box model 1
+    madgraph_name: blackbox_1
+    enabled: false
+
+detectors:
+  cms:
+    label: CMS-like detector
+    card: cards/delphes_card_CMS.tcl
+    description: Delphes CMS response for the LHC proton-proton environment.
+    enabled: true
+  aleph:
+    label: ALEPH-like detector
+    card: cards/delphes_card_ALEPH.tcl
+    description: Delphes ALEPH response for the LEP-like electron-positron experiment.
+    enabled: true
+  idea:
+    label: IDEA-like detector
+    card: cards/delphes_card_IDEA.tcl
+    description: Delphes IDEA response for the future circular 240 GeV Higgs-factory preset.
+    enabled: true
+
+colliders:
+  lhc13:
+    label: "LHC Run 2"
+    beam_type: pp
+    beam_energy_gev: 6500.0
+    full_pipeline: true
+    detector_ids: [cms]
+    default_detector_id: cms
+    mass_window_gev: [50.0, 130.0]
+    enabled: true
+  lep91:
+    label: "LEP-like Z-pole run"
+    beam_type: ee
+    beam_energy_gev: 45.6
+    full_pipeline: true
+    detector_ids: [aleph]
+    default_detector_id: aleph
+    mass_window_gev: [10.0, 130.0]
+    enabled: true
+  higgs240:
+    label: "Future circular Higgs factory"
+    beam_type: ee
+    beam_energy_gev: 120.0
+    full_pipeline: true
+    detector_ids: [idea]
+    default_detector_id: idea
+    mass_window_gev: [10.0, 250.0]
+    enabled: true
+
+processes:
+  dy_ll:
+    label: "Drell–Yan: p p → e+ e- or μ+ μ-"
+    collider_ids: [lhc13]
+    model_ids: [sm, loop_sm, blackbox_1]
+    madgraph_lines:
+      - generate p p > e+ e- QED=2 QCD=0
+      - add process p p > mu+ mu- QED=2 QCD=0
+    full_pipeline: true
+    enabled: true
+  dy_ee:
+    label: "Drell–Yan: p p → e+ e-"
+    collider_ids: [lhc13]
+    model_ids: [sm, loop_sm, blackbox_1]
+    madgraph_lines:
+      - generate p p > e+ e- QED=2 QCD=0
+    full_pipeline: true
+    enabled: true
+  dy_mumu:
+    label: "Drell–Yan: p p → μ+ μ-"
+    collider_ids: [lhc13]
+    model_ids: [sm, loop_sm, blackbox_1]
+    madgraph_lines:
+      - generate p p > mu+ mu- QED=2 QCD=0
+    full_pipeline: true
+    enabled: true
+  ee_mumu:
+    label: "Lepton pair: e+ e- → μ+ μ-"
+    collider_ids: [lep91, higgs240]
+    model_ids: [sm, loop_sm, blackbox_1]
+    madgraph_lines:
+      - generate e+ e- > mu+ mu- QED=2 QCD=0
+    full_pipeline: true
+    enabled: true
+  ee_zh_mumu:
+    label: "Higgsstrahlung: e+ e- → ZH, Z → μ+ μ-"
+    collider_ids: [higgs240]
+    model_ids: [sm, loop_sm, blackbox_1]
+    minimum_com_energy_gev: 220.0
+    madgraph_lines:
+      - generate e+ e- > z h, z > mu+ mu-
+    full_pipeline: true
+    enabled: true
+  ee_ww_mumu:
+    label: "W pair: e+ e- → W+W- → μ+ν μ-ν̄"
+    collider_ids: [higgs240]
+    model_ids: [sm, loop_sm, blackbox_1]
+    minimum_com_energy_gev: 165.0
+    madgraph_lines:
+      - generate e+ e- > w+ w-, w+ > mu+ vm, w- > mu- vm~
+    full_pipeline: true
+    enabled: true

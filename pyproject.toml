@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "findingz"
+version = "0.1.0"
+description = "Local deterministic Finding Z laboratory for PHYS 225A"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+dependencies = [
+  "matplotlib>=3.9",
+  "numpy>=2.0",
+  "pandas>=2.2",
+  "pydantic>=2.9",
+  "PyYAML>=6.0",
+  "streamlit>=1.40",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.8",
+]
+notebook = [
+  "ipywidgets>=8.1",
+  "jupyterlab>=4.2",
+]
+hep = [
+  "awkward>=2.8",
+  "uproot>=5.6",
+  "vector>=1.6",
+]
+
+[tool.setuptools.packages.find]
+include = ["findingz*"]
+
+[project.scripts]
+findingz-ui = "findingz.cli:main"
+
+[tool.setuptools.package-data]
+findingz = ["resources/config/*.yaml", "resources/cards/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
