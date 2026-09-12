@@ -43,6 +43,7 @@ from findingz.run_choices import fresh_config, matching_run, rename_saved_run
 from findingz.run_progress import render_progress_details
 from findingz.runs import list_saved_runs
 from findingz.notebook_export import notebook_directory, notebook_url, save_notebook, template_path
+from findingz.notebook_launch import launch_buttons
 from findingz.simulation import (
     SimulationRun,
     ToySimulationConfig,
@@ -542,24 +543,49 @@ def _render_jupyter_entrypoint() -> None:
     st.subheader("Continue in Jupyter")
     name = st.text_input("Notebook name (optional)", key="notebook_name")
     snapshot = {key: st.session_state.get(f"notebook_{key}") for key in ("plot", "count")}
-    left, right = st.columns(2)
-    current = left.button("Continue current analysis in Jupyter", disabled=not any(snapshot.values()))
-    blank = right.button("Start from blank template")
+    can_open = bool(os.environ.get("FINDINGZ_NOTEBOOK_URL_PREFIX", "").strip())
+    if can_open:
+        action = launch_buttons(
+            data={"enabled": any(snapshot.values()), "can_open": True,
+                  "reply": st.session_state.get("notebook_launch_reply")},
+            key="notebook_launch", on_request_change=lambda: None,
+        )
+        request = action.request
+        if request and request["id"] == st.session_state.get("notebook_launch_reply", {}).get("id"):
+            request = None
+        current = bool(request and request["mode"] == "current")
+        blank = bool(request and request["mode"] == "blank")
+    else:
+        left, right = st.columns(2)
+        current = left.button("Save current analysis notebook", disabled=not any(snapshot.values()))
+        blank = right.button("Start from blank template")
+        request = None
     st.caption(f"Notebooks saved to: {notebook_directory()}")
     st.caption(f"Template: {template_path()}")
     st.caption("Creates a new editable notebook, without overwriting earlier work. Run its cells to reproduce the analysis.")
+    if not can_open:
+        st.caption("Automatic JupyterLab opening is not configured here. These actions save the notebook; open the displayed path in JupyterLab.")
     if current or blank:
+        reply = {"id": request["id"]} if request else {}
         try:
             saved = save_notebook(name, snapshot if current else None)
             st.session_state["saved_analysis_notebook"] = str(saved)
+            reply["url"] = notebook_url(saved)
         except (OSError, ValueError, TypeError) as error:
-            st.error(f"Could not save the notebook: {error}")
+            reply["error"] = f"Could not save the notebook: {error}"
+        st.session_state["notebook_launch_reply"] = reply
+        if request:
+            st.rerun()
+    reply = st.session_state.get("notebook_launch_reply", {})
+    if reply.get("error"):
+        st.error(reply["error"])
     saved = st.session_state.get("saved_analysis_notebook")
     if saved:
         st.success(f"Saved notebook: {saved}")
         url = notebook_url(saved)
         if url:
-            st.link_button("Open saved notebook in JupyterLab", url)
+            with st.expander("Notebook did not open?"):
+                st.link_button("Open saved notebook in JupyterLab", url)
         else:
             st.info("Open this saved file in your existing JupyterLab file browser.")
 

@@ -64,7 +64,7 @@ def test_notebook_captures_current_selections(counting_app, tmp_path, monkeypatc
     app.multiselect(key="count_backgrounds").set_value(["background"]).run()
     _cuts(app, "count").set_value(["mll"]).run()
     _mass_slider(app, "count").set_value((90., 100.)).run()
-    _button(app, "Continue current analysis in Jupyter").click().run()
+    _button(app, "Save current analysis notebook").click().run()
     assert not app.exception
     doc = json.loads(Path(app.session_state["saved_analysis_notebook"]).read_text())
     namespace = {"display": lambda *_: None}
