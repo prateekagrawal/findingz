@@ -34,6 +34,30 @@ that routing configuration. Do not infer a fixed user-specific URL or add
 application authentication. The optional notebook link below does not configure
 the server, proxy, or authentication.
 
+## Local testing of the same application
+
+Use this Git checkout as the only application source. From this directory:
+
+```bash
+git pull --ff-only
+docker compose -p findingz -f docker-compose.hep.yml --profile advanced up -d --build
+```
+
+The local image installs Finding Z as a regular Python package and launches
+`findingz-ui`, just like CIT. Source is not live-mounted: rebuild after pulling
+or editing code. Local changes must be committed and pushed before CIT can use
+them. CIT's image rebuild must install the same revision to match the application.
+
+Always retain the `-p findingz` project name so the existing named run/notebook
+volumes are reused. Do not use `down -v` when updating.
+Local URLs are http://localhost:8501/ and http://localhost:8889/.
+
+This mirrors the installed-application structure, not CIT's JupyterHub deployment
+or exact Conda toolchain. Local Docker supplies its own simulation tools and a
+separate localhost-only JupyterLab service; CIT supplies its existing tools and
+authenticated JupyterLab/ServerProxy. Course configuration and student runs stay
+outside the installed Python package on both.
+
 ## Portable settings and cards
 
 - FINDINGZ_CATALOG_PATH: live course catalog (dropdowns, availability, samples).

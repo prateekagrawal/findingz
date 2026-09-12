@@ -57,12 +57,12 @@ RUN python3 -m venv /opt/findingz-venv \
 
 COPY . /opt/findingz
 
-RUN /opt/findingz-venv/bin/python -m pip install --no-cache-dir --no-deps -e . \
+RUN /opt/findingz-venv/bin/python -m pip install --no-cache-dir --no-deps --force-reinstall . \
     && /opt/findingz-venv/bin/python -m findingz.notebook_kernel --install \
     && chmod 0755 /opt/findingz/scripts/start_jupyter.sh
 
 # The official ROOT image already supplies the non-root ubuntu account as UID 1000,
-# which also maps cleanly to the default LSIT/JupyterHub-style user.
+# which also maps cleanly to the default CIT/JupyterHub-style user.
 RUN mkdir -p /workspace/runs /workspace/notebooks /course-config /data \
     && cp /opt/findingz/config/course_catalog.yaml /course-config/course_catalog.yaml \
     && cp /opt/findingz/config/analysis_variables.yaml /course-config/analysis_variables.yaml \
@@ -89,4 +89,4 @@ EXPOSE 8501
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl --fail --silent http://localhost:8501/_stcore/health || exit 1
 
-CMD ["python", "-m", "streamlit", "run", "/opt/findingz/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--browser.gatherUsageStats=false", "--client.toolbarMode=minimal"]
+CMD ["findingz-ui", "--server.address=0.0.0.0", "--server.port=8501", "--browser.gatherUsageStats=false", "--client.toolbarMode=minimal"]
