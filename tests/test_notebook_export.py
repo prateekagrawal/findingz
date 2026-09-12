@@ -46,7 +46,7 @@ def test_ui_saves_without_server(tmp_path, monkeypatch):
     monkeypatch.setenv("FINDINGZ_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.delenv("FINDINGZ_NOTEBOOK_URL_PREFIX", raising=False)
     app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py")).run(timeout=30)
-    next(b for b in app.button if b.label == "Start from blank template").click().run()
+    next(b for b in app.button if b.label == "Save blank template notebook").click().run()
     assert not app.exception
     saved = Path(app.session_state["saved_analysis_notebook"])
     assert saved.exists()
@@ -61,25 +61,17 @@ def test_notebook_link_uses_configured_prefix(monkeypatch):
     )
 
 
-def test_launch_request_is_saved_once(tmp_path, monkeypatch):
-    import streamlit as st
-    from types import SimpleNamespace
-    from findingz import notebook_launch
-
-    def fake_component(**kwargs):
-        clicked = st.button("Test browser click")
-        # Emulate a trigger retained across the immediate rerun.
-        if clicked:
-            st.session_state["test_launch_requested"] = True
-        return SimpleNamespace(request={"id": "test-click", "mode": "blank"}
-                               if st.session_state.get("test_launch_requested") else None)
-
-    monkeypatch.setattr(notebook_launch, "launch_buttons", fake_component)
+def test_save_then_link_without_duplicate_on_rerun(tmp_path, monkeypatch):
     monkeypatch.setenv("FINDINGZ_NOTEBOOK_DIR", str(tmp_path))
     monkeypatch.setenv("FINDINGZ_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("FINDINGZ_NOTEBOOK_URL_PREFIX", "https://example.org/lab/tree/")
     app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py")).run(timeout=30)
-    next(b for b in app.button if b.label == "Test browser click").click().run()
+    assert not app.get("link_button")
+    next(b for b in app.button if b.label == "Save blank template notebook").click().run()
     assert not app.exception
+    saved = Path(app.session_state["saved_analysis_notebook"])
+    link = next(item for item in app.get("link_button")
+                if item.proto.label == "Open saved notebook in JupyterLab")
+    assert link.proto.url == notebook_url(saved)
+    app.run()
     assert len(list(tmp_path.glob("*.ipynb"))) == 1
-    assert app.session_state["notebook_launch_reply"]["url"].startswith("https://example.org/")
