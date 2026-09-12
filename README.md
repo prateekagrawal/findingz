@@ -38,10 +38,14 @@ the server, proxy, or authentication.
 
 Use this Git checkout as the only application source. From this directory:
 
-Clone the course-materials repository beside this checkout, in a directory named
-`course-materials`, or set `FINDINGZ_COURSE_ROOT` to its absolute path. Compose
-mounts its notebook templates read-only; edits are picked up on the next notebook
-creation without an image rebuild. Existing student notebooks are unchanged.
+The default local setup uses the packaged notebook template. For live course
+template edits, clone course materials beside this checkout in `course-materials`
+or set `FINDINGZ_COURSE_ROOT` to its absolute path, grant Docker Desktop access
+to that folder, and add `-f deploy/compose.course-template.yml` after the primary
+Compose file. That optional override mounts the template read-only; edits are
+picked up on the next notebook creation without rebuilding. Existing student
+notebooks are unchanged. CIT uses FINDINGZ_NOTEBOOK_TEMPLATE directly and does not
+need this Docker Desktop override.
 
 ```bash
 git pull --ff-only
