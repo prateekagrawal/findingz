@@ -1,25 +1,21 @@
-"""Small first-party Streamlit component: user-click popup, then save-before-navigation."""
+"""Save before navigating the current tab; no popup or new-window dependency."""
 import streamlit as st
 
 JS = """
-// Preserve only our own pending tab handles across component script reloads.
-const pendingKey = Symbol.for('findingz.notebookLaunch.pending');
-const pending = window[pendingKey] || (window[pendingKey] = new Map());
+const pendingKey = Symbol.for('findingz.notebookNavigation.pending');
+const pending = window[pendingKey] || (window[pendingKey] = new Set());
 export default function(component) {
     const {data, parentElement, setTriggerValue} = component;
     const status = parentElement.querySelector('[role="status"]');
     const buttons = [...parentElement.querySelectorAll('button')];
     const reply = data.reply;
     if (reply && pending.has(reply.id)) {
-        const popup = pending.get(reply.id);
         pending.delete(reply.id);
         if (reply.error) {
-            if (popup && !popup.closed) popup.close();
             status.textContent = reply.error;
-        } else if (popup && !popup.closed && reply.url) {
-            popup.opener = null;
-            popup.location.replace(reply.url);
-            status.textContent = 'Notebook saved and opened in JupyterLab.';
+        } else if (reply.url) {
+            status.textContent = 'Notebook saved. Going to JupyterLab…';
+            window.location.assign(reply.url);
         } else {
             status.textContent = 'Notebook saved. Use the saved path or recovery link below.';
         }
@@ -28,14 +24,9 @@ export default function(component) {
         button.disabled = pending.size > 0 || (button.dataset.mode === 'current' && !data.enabled);
         button.onclick = () => {
             const id = crypto.randomUUID();
-            // Open synchronously during the user gesture, not after a server round trip.
-            const popup = data.can_open ? window.open('about:blank', '_blank') : null;
-            if (popup) popup.document.body.textContent = 'Saving your analysis notebook…';
-            pending.set(id, popup);
+            pending.add(id);
             buttons.forEach(item => item.disabled = true);
-            status.textContent = data.can_open && !popup
-                ? 'Your browser blocked the tab. Saving the notebook; a recovery link will appear below.'
-                : 'Saving notebook…';
+            status.textContent = 'Saving notebook…';
             setTriggerValue('request', {id, mode: button.dataset.mode});
         };
     });

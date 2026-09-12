@@ -13,6 +13,8 @@ def test_unique_safe_names_and_blank_execution(tmp_path, monkeypatch):
     original = first.read_bytes()
     second = save_notebook("../../my analysis")
     assert first != second and first.parent == tmp_path
+    assert first.name == "my-analysis.ipynb"
+    assert second.name == "my-analysis-2.ipynb"
     assert first.read_bytes() == original
     doc = json.loads(original)
     namespace = {"display": lambda *_: None}

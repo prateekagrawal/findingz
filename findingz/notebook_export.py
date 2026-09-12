@@ -4,7 +4,6 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
 from urllib.parse import quote
 
 
@@ -40,13 +39,22 @@ def save_notebook(name, snapshot=None):
         "template": str(template), "created_utc": datetime.now(timezone.utc).isoformat(),
         "mode": "current" if snapshot is not None else "blank",
     }
-    stem = re.sub(r"[^a-zA-Z0-9_-]+", "-", name.strip()).strip("-")[:80] or "analysis"
+    entered = name.strip()
+    if entered.lower().endswith(".ipynb"):
+        entered = entered[:-6]
+    stem = re.sub(r"[^a-zA-Z0-9_-]+", "-", entered).strip("-")[:80] or "analysis"
     directory = notebook_directory()
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{stem}-{uuid4().hex[:12]}.ipynb"
-    # Exclusive creation: never replace a student's notebook.
-    with path.open("x", encoding="utf-8") as stream:
-        json.dump(document, stream, indent=1, ensure_ascii=False)
-        stream.write("\n")
-    return path
-
+    # Exclusive creation also protects against concurrent requests using the same name.
+    for number in range(1, 10001):
+        suffix = "" if number == 1 else f"-{number}"
+        path = directory / f"{stem}{suffix}.ipynb"
+        try:
+            stream = path.open("x", encoding="utf-8")
+        except FileExistsError:
+            continue
+        with stream:
+            json.dump(document, stream, indent=1, ensure_ascii=False)
+            stream.write("\n")
+        return path
+    raise ValueError("Too many notebooks with this name; choose another name.")

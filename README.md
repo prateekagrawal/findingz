@@ -82,9 +82,9 @@ outside the installed Python package on both.
   exactly to FINDINGZ_NOTEBOOK_DIR. The app appends the new filename. Leave unset
   on CIT unless its routing is configured; saving still works and the file path
   is shown. This replaces the old fixed FINDINGZ_JUPYTER_URL setting.
-  With a prefix configured, each notebook action opens a tab on the user click,
-  saves the notebook, then navigates that tab to the saved file. If popups are
-  blocked, a recovery link is available under "Notebook did not open?".
+  With a prefix configured, each notebook action saves the notebook, then navigates
+  the current tab to the saved file. No popup permission is needed.
+  A recovery link is available under "Notebook did not open?".
   Without a prefix, the controls explicitly save only and show the file path.
 - FINDINGZ_MG5, FINDINGZ_PYTHIA8_DIR, FINDINGZ_DELPHES_DIR: installed tool locations.
 - FINDINGZ_CARD_ROOT: optional independent root for catalog-relative detector cards.

@@ -563,6 +563,8 @@ def _render_jupyter_entrypoint() -> None:
     st.caption(f"Notebooks saved to: {notebook_directory()}")
     st.caption(f"Template: {template_path()}")
     st.caption("Creates a new editable notebook, without overwriting earlier work. Run its cells to reproduce the analysis.")
+    if can_open:
+        st.caption("Saves first, then opens JupyterLab in this tab. Duplicate names get a numbered suffix.")
     if not can_open:
         st.caption("Automatic JupyterLab opening is not configured here. These actions save the notebook; open the displayed path in JupyterLab.")
     if current or blank:
