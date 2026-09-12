@@ -55,6 +55,27 @@ def _button(app, label):
     return next(widget for widget in app.button if widget.label == label)
 
 
+def test_notebook_captures_current_selections(counting_app, tmp_path, monkeypatch):
+    import json
+    import matplotlib
+    matplotlib.use("Agg", force=True)
+    monkeypatch.setenv("FINDINGZ_NOTEBOOK_DIR", str(tmp_path / "notebooks"))
+    app = counting_app
+    app.multiselect(key="count_backgrounds").set_value(["background"]).run()
+    _cuts(app, "count").set_value(["mll"]).run()
+    _mass_slider(app, "count").set_value((90., 100.)).run()
+    _button(app, "Continue current analysis in Jupyter").click().run()
+    assert not app.exception
+    doc = json.loads(Path(app.session_state["saved_analysis_notebook"]).read_text())
+    namespace = {"display": lambda *_: None}
+    for cell in doc["cells"]:
+        if cell["cell_type"] == "code":
+            exec(cell["source"], namespace)
+    assert namespace["analysis"]["count"]["windows"]["mll"] == [90., 100.]
+    assert namespace["analysis"]["plot"]["windows"] == {}
+    assert namespace["result"].signal_yield == 500.
+
+
 def test_counting_is_available_with_one_or_no_plotted_samples(counting_app):
     app = counting_app
     app.multiselect(key="count_backgrounds").set_value(["background"]).run()

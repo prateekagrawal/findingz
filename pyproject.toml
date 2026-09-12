@@ -39,7 +39,7 @@ include = ["findingz*"]
 findingz-ui = "findingz.cli:main"
 
 [tool.setuptools.package-data]
-findingz = ["resources/config/*.yaml", "resources/cards/*"]
+findingz = ["resources/config/*.yaml", "resources/cards/*", "resources/notebooks/*.ipynb"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -39,9 +39,16 @@ the server, proxy, or authentication.
 - FINDINGZ_CATALOG_PATH: live course catalog (dropdowns, availability, samples).
 - FINDINGZ_VARIABLES_PATH: live observable definitions; by default next to catalog.
 - FINDINGZ_RUN_ROOT: persistent writable student run storage.
-- FINDINGZ_JUPYTER_URL: optional notebook navigation link only. Leave unset on CIT
-  to show instructions to open the starter notebook in the existing JupyterLab
-  interface. Local Docker Compose explicitly supplies its localhost notebook link.
+- FINDINGZ_NOTEBOOK_DIR: persistent writable directory for new student notebooks;
+  defaults to ~/findingz-notebooks. Displayed below the basic analysis.
+- FINDINGZ_NOTEBOOK_TEMPLATE: editable nbformat-4 course template; use
+  notebooks/templates/analysis_template.ipynb from the course checkout.
+  Omit to use the packaged fallback. Exactly one code cell must have the metadata
+  tag findingz-settings; Finding Z replaces only that cell and clears outputs.
+- FINDINGZ_NOTEBOOK_URL_PREFIX: optional JupyterLab lab/tree/ URL prefix mapping
+  exactly to FINDINGZ_NOTEBOOK_DIR. The app appends the new filename. Leave unset
+  on CIT unless its routing is configured; saving still works and the file path
+  is shown. This replaces the old fixed FINDINGZ_JUPYTER_URL setting.
 - FINDINGZ_MG5, FINDINGZ_PYTHIA8_DIR, FINDINGZ_DELPHES_DIR: installed tool locations.
 - FINDINGZ_CARD_ROOT: optional independent root for catalog-relative detector cards.
 - FINDINGZ_HEP_IMAGE_ID: optional, manually assigned simulation-stack label

@@ -12,11 +12,14 @@ services:
       - findingz-catalog:/course-config
       - findingz-data:/data
       - findingz-notebooks:/workspace/notebooks
+      - ${FINDINGZ_COURSE_ROOT:-../course-materials}/notebooks/templates:/course-templates:ro
     environment:
       MPLCONFIGDIR: /tmp/matplotlib
       FINDINGZ_CATALOG_PATH: /course-config/course_catalog.yaml
       FINDINGZ_RUN_ROOT: /workspace/runs
-      FINDINGZ_JUPYTER_URL: http://localhost:8889/lab/tree/notebooks/06_sample_analysis.ipynb
+      FINDINGZ_NOTEBOOK_DIR: /workspace/notebooks
+      FINDINGZ_NOTEBOOK_TEMPLATE: /course-templates/analysis_template.ipynb
+      FINDINGZ_NOTEBOOK_URL_PREFIX: http://localhost:8889/lab/tree/notebooks/
     init: true
 
   jupyter:

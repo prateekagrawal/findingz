@@ -42,6 +42,7 @@ from findingz.hypotheses import (
 from findingz.run_choices import fresh_config, matching_run, rename_saved_run
 from findingz.run_progress import render_progress_details
 from findingz.runs import list_saved_runs
+from findingz.notebook_export import notebook_directory, notebook_url, save_notebook, template_path
 from findingz.simulation import (
     SimulationRun,
     ToySimulationConfig,
@@ -537,28 +538,30 @@ def _render_simulation_results() -> None:
 
 
 def _render_jupyter_entrypoint() -> None:
-    notebook_path = "notebooks/06_sample_analysis.ipynb"
-    jupyter_url = os.environ.get("FINDINGZ_JUPYTER_URL", "").strip()
-    st.caption(
-        "Prefer Python? Explore object definitions and custom analyses in the starter notebook."
-    )
-    if jupyter_url:
-        st.link_button("Open Jupyter analysis", jupyter_url)
-    else:
-        st.caption(
-            f"Open the starter notebook, {notebook_path}, in JupyterLab "
-            "from your course-materials folder."
-        )
-    with st.expander("Using the analysis notebook"):
-        st.markdown(
-            "1. Open the notebook and run the cells from the top.\n"
-            "2. Choose sample IDs from the table it creates.\n"
-            "3. Edit the highlighted cuts or electron-definition values and rerun the cells.\n"
-            "4. Save or rename the notebook normally; your copy and outputs persist between "
-            "sessions.\n\n"
-            "Use your course's Python kernel if Jupyter asks you to choose one "
-            "(**Python (Finding Z)** in the local setup)."
-        )
+    st.divider()
+    st.subheader("Continue in Jupyter")
+    name = st.text_input("Notebook name (optional)", key="notebook_name")
+    snapshot = {key: st.session_state.get(f"notebook_{key}") for key in ("plot", "count")}
+    left, right = st.columns(2)
+    current = left.button("Continue current analysis in Jupyter", disabled=not any(snapshot.values()))
+    blank = right.button("Start from blank template")
+    st.caption(f"Notebooks saved to: {notebook_directory()}")
+    st.caption(f"Template: {template_path()}")
+    st.caption("Creates a new editable notebook, without overwriting earlier work. Run its cells to reproduce the analysis.")
+    if current or blank:
+        try:
+            saved = save_notebook(name, snapshot if current else None)
+            st.session_state["saved_analysis_notebook"] = str(saved)
+        except (OSError, ValueError, TypeError) as error:
+            st.error(f"Could not save the notebook: {error}")
+    saved = st.session_state.get("saved_analysis_notebook")
+    if saved:
+        st.success(f"Saved notebook: {saved}")
+        url = notebook_url(saved)
+        if url:
+            st.link_button("Open saved notebook in JupyterLab", url)
+        else:
+            st.info("Open this saved file in your existing JupyterLab file browser.")
 
 
 def _sample_config_summary(sample: AnalysisSample) -> str:
@@ -735,6 +738,13 @@ def _render_dataset_plot(
             else 1.0
         )
 
+    st.session_state["notebook_plot"] = {
+        "samples": [sample.sample_id for sample in selected_samples],
+        "observable": observable, "channels": channels, "windows": windows,
+        "variables": {name: value.model_dump() for name, value in variables.items()},
+        "expected_yields": normalization == "Expected yields", "luminosity_fb": float(luminosity),
+        "sample_configs": {sample.sample_id: sample.config for sample in selected_samples},
+    }
     try:
         expected_yields = normalization == "Expected yields"
         frames = _analysis_frames(
@@ -966,6 +976,15 @@ def _render_limit_estimate(
             disabled=compatibility_error is not None,
         )
 
+    if compatibility_error is None:
+        st.session_state["notebook_count"] = {
+            "signal": signal.sample_id, "backgrounds": background_ids,
+            "channels": channels, "windows": windows,
+            "variables": {name: value.model_dump() for name, value in variables.items()},
+            "luminosity_fb": float(luminosity), "expected_yields": True,
+            "background_uncertainty_fraction": background_uncertainty / 100.0,
+            "sample_configs": {sample.sample_id: sample.config for sample in selected_samples},
+        }
     if not calculate:
         with display:
             st.info(
@@ -1071,16 +1090,19 @@ def _render_event_explorer() -> None:
         "Choose any available datasets to compare. Assign signal and background roles only if "
         "you continue to the cut-and-count limit estimate."
     )
-    _render_jupyter_entrypoint()
+    st.session_state["notebook_plot"] = None
+    st.session_state["notebook_count"] = None
     library = build_sample_library(load_catalog(), _run_root())
     if not library:
         st.info(
             "No samples are available yet. Generate a run or add completed runs to the catalogue."
         )
+        _render_jupyter_entrypoint()
         return
 
     plot_selection = _render_sample_plot_controls(library)
     _render_limit_estimate(library, plot_selection=plot_selection)
+    _render_jupyter_entrypoint()
 
 
 def _render_sample_plot_controls(
