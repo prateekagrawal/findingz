@@ -20,26 +20,36 @@ This installs Finding Z and its Python dependencies, not MadGraph/Pythia/Delphes
 Do not overwrite CIT's working kernelspecs using the local notebook-kernel installer.
 
 Copy `deploy/cit.env.example` to a deployment-controlled location, set the actual
-course checkout, persistent run directory, image revision and authenticated notebook
-URL, and source it before launch. Do not commit secrets. The UI command is:
+course checkout and persistent run directory, and source it before launch.
+No fixed per-user Jupyter URL is required. The UI command is:
 
 ```bash
 findingz-ui --server.address=127.0.0.1 --server.port=8501
 ```
 
-CIT should connect its existing Streamlit launcher to this command in `hep`, using
-its authenticated proxy and appropriate port/base URL settings. These remain to be
-confirmed with CIT; localhost:8501 is not a public hosting configuration.
+CIT should connect its existing Streamlit launcher to this command in `hep`.
+Finding Z listens on port 8501; CIT's ServerProxy handles authentication and routing.
+If CIT's proxy requires a Streamlit URL prefix, set `--server.baseUrlPath` to match
+that routing configuration. Do not infer a fixed user-specific URL or add
+application authentication. The optional notebook link below does not configure
+the server, proxy, or authentication.
 
 ## Portable settings and cards
 
 - FINDINGZ_CATALOG_PATH: live course catalog (dropdowns, availability, samples).
 - FINDINGZ_VARIABLES_PATH: live observable definitions; by default next to catalog.
 - FINDINGZ_RUN_ROOT: persistent writable student run storage.
-- FINDINGZ_JUPYTER_URL: authenticated notebook link.
+- FINDINGZ_JUPYTER_URL: optional notebook navigation link only. Leave unset on CIT
+  to show instructions to open the starter notebook in the existing JupyterLab
+  interface. Local Docker Compose explicitly supplies its localhost notebook link.
 - FINDINGZ_MG5, FINDINGZ_PYTHIA8_DIR, FINDINGZ_DELPHES_DIR: installed tool locations.
 - FINDINGZ_CARD_ROOT: optional independent root for catalog-relative detector cards.
-- FINDINGZ_HEP_IMAGE_ID: actual tested toolchain revision; change when tools change.
+- FINDINGZ_HEP_IMAGE_ID: optional, manually assigned simulation-stack label
+  (for example, `cit-hep-v1`). Recorded with runs and included in their reuse key;
+  change it when tools change to avoid reusing results from the previous stack.
+  It does not verify an image, require a registry ID, or affect authentication.
+  If unset, the label is `unversioned-local-stack`; tool upgrades are not detected
+  automatically.
 
 CIT's tested MadGraph setting is `delphes_path = /opt/conda/envs/hep/bin/`.
 CIT must bake it into `MG5_aMC/input/mg5_configuration.txt`. Existing Conda
@@ -55,6 +65,12 @@ Delphes-directory cards. See that directory's README for provenance and constrai
 Do not silently substitute a different detector when a card is missing.
 
 ## Course updates and release workflow
+
+Application changes require updating the Finding Z checkout and reinstalling
+with `python -m pip install '.[hep]'` in `hep`, then restarting the app.
+For an image-installed application, CIT should apply this in its image build.
+Pushing to GitHub or syncing course materials with nbgitpuller does not update an
+already-installed application.
 
 Course files are read from configured external paths, not installed into Python.
 Pull/sync the course repository on CIT to publish configuration changes; a GitHub

@@ -538,17 +538,17 @@ def _render_simulation_results() -> None:
 
 def _render_jupyter_entrypoint() -> None:
     notebook_path = "notebooks/06_sample_analysis.ipynb"
-    jupyter_url = os.environ.get(
-        "FINDINGZ_JUPYTER_URL",
-        f"http://localhost:8889/lab/tree/{notebook_path}",
+    jupyter_url = os.environ.get("FINDINGZ_JUPYTER_URL", "").strip()
+    st.caption(
+        "Prefer Python? Explore object definitions and custom analyses in the starter notebook."
     )
-    left, right = st.columns([3, 1])
-    with left:
+    if jupyter_url:
+        st.link_button("Open Jupyter analysis", jupyter_url)
+    else:
         st.caption(
-            "Prefer Python? Explore object definitions and custom analyses in the starter notebook."
+            f"Open the starter notebook, {notebook_path}, in JupyterLab "
+            "from your course-materials folder."
         )
-    with right:
-        st.link_button("Open Jupyter analysis", jupyter_url, width="stretch")
     with st.expander("Using the analysis notebook"):
         st.markdown(
             "1. Open the notebook and run the cells from the top.\n"
@@ -556,7 +556,8 @@ def _render_jupyter_entrypoint() -> None:
             "3. Edit the highlighted cuts or electron-definition values and rerun the cells.\n"
             "4. Save or rename the notebook normally; your copy and outputs persist between "
             "sessions.\n\n"
-            "Use the **Python (Finding Z)** kernel if Jupyter asks you to choose one."
+            "Use your course's Python kernel if Jupyter asks you to choose one "
+            "(**Python (Finding Z)** in the local setup)."
         )
 
 
