@@ -2,6 +2,7 @@
 import json
 import os
 import re
+from pprint import pformat
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -30,7 +31,9 @@ def save_notebook(name, snapshot=None):
     if document.get("nbformat") != 4 or len(slots) != 1 or slots[0].get("cell_type") != "code":
         raise ValueError("Template must be nbformat 4 with exactly one code cell tagged findingz-settings.")
     settings = snapshot or {"plot": None, "count": None}
-    slots[0]["source"] = "analysis = json.loads(" + repr(json.dumps(settings, allow_nan=False)) + ")\n"
+    # Keep the full snapshot readable and executable, without a giant escaped JSON line.
+    normalized = json.loads(json.dumps(settings, allow_nan=False))
+    slots[0]["source"] = "analysis = " + pformat(normalized, width=88, sort_dicts=False) + "\n"
     for cell in cells:
         if cell.get("cell_type") == "code":
             cell["outputs"] = []
