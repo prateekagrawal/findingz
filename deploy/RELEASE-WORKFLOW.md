@@ -48,18 +48,20 @@ the installed package to test it. Existing saved notebooks do not update.
 
 ### FindingZ 0.2.0 candidate — 2026-09-21
 
-Publish both repositories on `codex/release-0.2.0` for CIT testing. Leave
-`codex/initial-layout` unchanged until CIT has installed and validated 0.2.0.
+Publish both repositories on the existing `codex/initial-layout` branch, as
+requested by the instructor: no students are using this deployment yet. Keep
+the existing nbgitpuller link unchanged. CIT must install and validate 0.2.0
+before testing the updated course notebooks.
 The candidate course catalogue requires 0.2.0 and its notebooks use
 `compare_samples` / `comparison_table`. All 147 app tests pass; external UFO
 import/process generation has been tested locally. These checks do not resolve
 the historical live-notebook plotting blocker below or establish CIT acceptance.
-Do not change the students' nbgitpuller branch until that acceptance check passes.
+Do not open this deployment to students until that acceptance check passes.
 
-The simplified template uses new `load_analysis` and `enable_inline_plots`
-helpers. Do not publish that template to the students' nbgitpuller branch until
-CIT has the matching FindingZ installation. These local edits are not evidence
-that CIT has changed. See `CIT-PENDING-CHANGES.md` for the consolidated request.
+The packaged simplified template uses new `load_analysis` and `enable_inline_plots`
+helpers, and course notebooks require the comparison helpers. Repository updates
+do not update CIT's installed package. See `CIT-PENDING-CHANGES.md` for the
+consolidated request. The older activation notes below are historical.
 
 ### Local activation check — 2026-09-15
 
