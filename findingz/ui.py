@@ -59,7 +59,7 @@ def _luminosity_input(key: str) -> float:
     factors = {"fb⁻¹": 1.0, "pb⁻¹": 1e-3, "nb⁻¹": 1e-6}
     value_column, unit_column = st.columns([2, 1])
     with unit_column:
-        unit = st.selectbox("Luminosity unit", list(factors), key=f"{key}_unit")
+        unit = st.selectbox("Luminosity unit", list(factors), index=2, key=f"{key}_unit")
     previous = st.session_state.get(f"{key}_display_unit", "fb⁻¹")
     if previous != unit and key in st.session_state:
         st.session_state[key] *= factors[previous] / factors[unit]
@@ -67,7 +67,7 @@ def _luminosity_input(key: str) -> float:
     with value_column:
         value = st.number_input(
             "Integrated luminosity", min_value=0.0,
-            value=1.0 / factors[unit], format="%.6g", key=key,
+            value=20e-6 / factors[unit], format="%.6g", key=key,
             help="Changing units preserves the luminosity. Enter a new value to change the exposure.",
         )
     return float(value) * factors[unit]

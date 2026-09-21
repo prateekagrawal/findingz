@@ -1,0 +1,19 @@
+FROM python:3.12-slim
+
+# The notebook/analysis service does not need the x86 HEP executables.
+RUN useradd --create-home --uid 1000 ubuntu
+WORKDIR /opt/findingz
+COPY pyproject.toml LICENSE ./
+COPY findingz ./findingz
+RUN python -m pip install --no-cache-dir '.[hep,notebook]' \
+    && python -m ipykernel install --sys-prefix --name findingz --display-name 'Python (Finding Z)'
+COPY scripts/start_jupyter.sh ./scripts/start_jupyter.sh
+RUN chmod 0755 scripts/start_jupyter.sh \
+    && mkdir -p /workspace/notebooks /tmp/matplotlib \
+    && chown -R ubuntu:ubuntu /workspace /tmp/matplotlib
+USER ubuntu
+ENV MPLCONFIGDIR=/tmp/matplotlib
+# Build the font cache before students start a kernel.
+RUN python -c 'from matplotlib.figure import Figure; Figure().subplots()'
+WORKDIR /workspace
+CMD ["/opt/findingz/scripts/start_jupyter.sh"]

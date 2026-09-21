@@ -7,6 +7,17 @@ import yaml
 ROOT = Path(__file__).parents[1]
 
 
+def test_notebook_service_uses_native_image_and_standard_kernel():
+    compose = yaml.safe_load((ROOT / "docker-compose.hep.yml").read_text())
+    assert compose["services"]["findingz"]["platform"] == "linux/amd64"
+    notebook = compose["services"]["jupyter"]
+    assert "platform" not in notebook
+    assert notebook["build"]["dockerfile"] == "docker/Dockerfile.notebook"
+    dockerfile = (ROOT / "docker/Dockerfile.notebook").read_text()
+    assert "python -m ipykernel install" in dockerfile
+    assert "findingz.notebook_kernel" not in dockerfile
+
+
 def test_both_services_share_external_course_and_student_storage():
     compose = yaml.safe_load((ROOT / "docker-compose.hep.yml").read_text())
     app = compose["services"]["findingz"]

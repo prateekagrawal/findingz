@@ -26,6 +26,14 @@ def notebook_url(path):
 def save_notebook(name, snapshot=None):
     template = template_path()
     document = json.loads(template.read_text())
+    kernel = os.environ.get("FINDINGZ_NOTEBOOK_KERNEL", "").strip()
+    if kernel:
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", kernel):
+            raise ValueError("FINDINGZ_NOTEBOOK_KERNEL must be an installed kernel name")
+        document.setdefault("metadata", {})["kernelspec"] = {
+            "name": kernel, "language": "python",
+            "display_name": {"findingz": "Python (Finding Z)", "hep": "Python (hep)"}.get(kernel, kernel),
+        }
     cells = document.get("cells", [])
     slots = [cell for cell in cells if "findingz-settings" in cell.get("metadata", {}).get("tags", [])]
     if document.get("nbformat") != 4 or len(slots) != 1 or slots[0].get("cell_type") != "code":

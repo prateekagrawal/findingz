@@ -41,6 +41,14 @@ def test_external_template_reload_and_error(tmp_path, monkeypatch):
         save_notebook("bad")
 
 
+@pytest.mark.parametrize("kernel", ["findingz", "hep"])
+def test_export_requests_deployment_kernel(tmp_path, monkeypatch, kernel):
+    monkeypatch.setenv("FINDINGZ_NOTEBOOK_DIR", str(tmp_path))
+    monkeypatch.setenv("FINDINGZ_NOTEBOOK_KERNEL", kernel)
+    document = json.loads(save_notebook("kernel-test").read_text())
+    assert document["metadata"]["kernelspec"]["name"] == kernel
+
+
 def test_short_settings_and_editable_choices(tmp_path, monkeypatch):
     from findingz.notebook_analysis import load_analysis
     monkeypatch.setenv("FINDINGZ_NOTEBOOK_DIR", str(tmp_path))

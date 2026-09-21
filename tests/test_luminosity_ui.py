@@ -9,12 +9,8 @@ from findingz.ui import _luminosity_input
 st.session_state["result_fb"] = _luminosity_input("test_lumi")
 ''', default_timeout=30).run()
     assert not app.exception
-    assert app.session_state["result_fb"] == 1.0
-    app.selectbox(key="test_lumi_unit").set_value("nb⁻¹").run()
-    assert not app.exception
-    assert app.number_input(key="test_lumi").value == pytest.approx(1e6)
-    assert app.session_state["result_fb"] == pytest.approx(1.0)
-    app.number_input(key="test_lumi").set_value(20.0).run()
+    assert app.selectbox(key="test_lumi_unit").value == "nb⁻¹"
+    assert app.number_input(key="test_lumi").value == pytest.approx(20.0)
     assert app.session_state["result_fb"] == pytest.approx(2e-5)
     app.selectbox(key="test_lumi_unit").set_value("pb⁻¹").run()
     assert app.number_input(key="test_lumi").value == pytest.approx(.02)

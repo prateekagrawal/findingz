@@ -80,9 +80,9 @@ def test_notebook_captures_current_selections(counting_app, tmp_path, monkeypatc
             exec(cell["source"], namespace)
     assert namespace["analysis"]["count"]["windows"]["mll"] == [90., 100.]
     assert namespace["analysis"]["plot"]["windows"] == {}
-    assert namespace["result"].null_yield == 500.
-    assert namespace["result"].alternative_yield == 500.
-    assert namespace["result"].difference == 0
+    assert namespace["counts"]["null"] == pytest.approx(.01)
+    assert namespace["counts"]["alternative"] == pytest.approx(.01)
+    assert namespace["difference"] == 0
 
 
 def test_counting_is_available_with_one_or_no_plotted_samples(counting_app):
@@ -97,7 +97,7 @@ def test_counting_is_available_with_one_or_no_plotted_samples(counting_app):
     assert not _button(app, "Run cut-and-count").disabled
     _button(app, "Run cut-and-count").click().run()
     assert not app.error
-    assert next(metric for metric in app.metric if metric.label == "Null prediction").value == "1,000.00"
+    assert next(metric for metric in app.metric if metric.label == "Null prediction").value == "0.02"
 
 
 def test_count_summary_is_small_and_explained(counting_app):

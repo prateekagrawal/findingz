@@ -66,6 +66,13 @@ Always retain the `-p findingz` project name so the existing named run/notebook
 volumes are reused. Do not use `down -v` when updating.
 Local URLs are http://localhost:8501/ and http://localhost:8889/.
 
+The notebook service builds `docker/Dockerfile.notebook` for the host's native
+architecture, using standard IPython kernels. Only the simulation service uses
+the x86 HEP image: notebook execution does not need x86 emulation on Apple Silicon.
+Both images install the same Finding Z source and share the persistent runs and
+notebooks. New local exports request the `findingz` kernel; CIT exports can request
+`hep` with `FINDINGZ_NOTEBOOK_KERNEL=hep`. Existing notebooks are not rewritten.
+
 This mirrors the installed-application structure, not CIT's JupyterHub deployment
 or exact Conda toolchain. Local Docker supplies its own simulation tools and a
 separate localhost-only JupyterLab service; CIT supplies its existing tools and

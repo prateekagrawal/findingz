@@ -5,22 +5,25 @@ one consolidated message after testing. These are requests, not confirmed image 
 
 ## Requested image / environment changes
 
-- [ ] Install the agreed tested FindingZ commit in the image before releasing
-  course templates that require its new notebook helpers. Record that commit.
+- [ ] Update the existing FindingZ installation in `hep` to the agreed commit.
+  Record that commit; test exported notebooks before distributing course updates.
 - [ ] Point both the app and notebook environment at the same nbgitpuller checkout
   for `FINDINGZ_CATALOG_PATH`, `FINDINGZ_VARIABLES_PATH`, and
   `FINDINGZ_NOTEBOOK_TEMPLATE`. Keep persistent run storage separate; set
   `FINDINGZ_NOTEBOOK_DIR=/home/jovyan/work` for new work. Preserve any existing
   notebooks in older directories rather than moving or overwriting them.
 
-- [ ] Install `awkward` and `uproot` in `/opt/conda/envs/hep` for reading Delphes
-  ROOT files and working with variable-length particle collections in notebooks.
-  Include these in the image rather than relying on per-session installs.
+- [x] Prateek confirmed (2026-09-21) that `awkward` and `uproot` are available
+  in `hep`. No additional installation request is needed.
 - [ ] Make `hep` the default Python environment for student work, including
   terminals and, importantly, newly opened/created notebooks. Register a visible
   **Python (hep)** kernel in the image and configure Jupyter to select it by
   default. Terminal activation alone does not select the notebook kernel.
   JupyterHub's server process may remain in its existing base environment.
+- [ ] Set `FINDINGZ_NOTEBOOK_KERNEL=hep` for FindingZ exports.
+- [ ] Persist `delphes_path = /opt/conda/envs/hep/bin/` in MadGraph's
+  `mg5_configuration.txt` in the image. Prateek tested this path successfully
+  and obtained `tag_1_delphes_events.root`.
 
 ## Acceptance checks
 
@@ -43,8 +46,11 @@ kernel metadata can affect which kernel is selected. In a new terminal,
 - The notebook initially ran `/opt/conda/bin/python` and could not import FindingZ.
 - Registering the hep kernel and restarting the server exposed **Python (hep)**;
   selecting it made the FindingZ import work.
-- Awkward was reported unavailable during subsequent testing; dependency imports
-  should be checked in the final image.
+- The earlier missing-package report was superseded by confirmation that Awkward
+  and Uproot are available in hep; retain the fresh-session import check.
+- Local native Jupyter execution, including browser Run All Cells, was verified
+  on 2026-09-21. This is not verification of the updated CIT image. The separate
+  native notebook Docker image is a local Apple Silicon solution, not a CIT request.
 
 ## Separate application follow-up (not a CIT installation request)
 
