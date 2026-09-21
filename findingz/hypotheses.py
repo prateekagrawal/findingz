@@ -112,8 +112,22 @@ def build_sample_library(
     # Instructor samples are ordinary complete runs, not separately normalized CSVs.
     runs = {}
     labels = {}
+    for folder in catalog.dataset_folders.values():
+        if not folder.is_available():
+            continue
+        directory = resolve_catalog_path(folder.path, catalog._source)
+        if not directory.is_dir():
+            raise ValueError(f"Shared dataset folder is unavailable: {directory}")
+        for manifest_path in directory.glob("*/manifest.json"):
+            manifest = json.loads(manifest_path.read_text())
+            if manifest.get("schema_version", 1) not in (1, 2):
+                raise ValueError(f"Unsupported FindingZ dataset schema in {manifest_path}; update FindingZ or use compatible samples")
+        for run in list_saved_runs(directory):
+            if run.run_id in runs and runs[run.run_id].manifest_path != run.manifest_path:
+                raise ValueError(f"Duplicate shared dataset run ID: {run.run_id}")
+            runs[run.run_id] = run
     for entry in catalog.available_datasets().values():
-        directory = resolve_catalog_path(entry.path)
+        directory = resolve_catalog_path(entry.path, catalog._source)
         if not directory.is_dir():
             continue  # Legacy synthetic CSVs remain usable by the old notebooks only.
         for run in list_saved_runs(directory.parent):

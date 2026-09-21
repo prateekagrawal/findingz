@@ -38,14 +38,19 @@ the server, proxy, or authentication.
 
 Use this Git checkout as the only application source. From this directory:
 
-The default local setup uses the packaged notebook template. For live course
-template edits, clone course materials beside this checkout in `course-materials`
-or set `FINDINGZ_COURSE_ROOT` to its absolute path, grant Docker Desktop access
-to that folder, and add `-f deploy/compose.course-template.yml` after the primary
-Compose file. That optional override mounts the template read-only; edits are
-picked up on the next notebook creation without rebuilding. Existing student
-notebooks are unchanged. CIT uses FINDINGZ_NOTEBOOK_TEMPLATE directly and does not
-need this Docker Desktop override.
+Clone the course repository alongside this one as `../course-materials`, or set
+`FINDINGZ_COURSE_ROOT` to its absolute path. The default Compose setup mounts that
+entire checkout into both the app and JupyterLab. Catalogs, variable definitions,
+and the notebook template all come from this external repository; no app rebuild
+is needed for compatible course edits. Docker Desktop must have permission to
+access the host folder. A missing/denied mount is an error, not a reason to fall
+back silently to packaged course files.
+
+Student runs and notebooks keep their existing named volumes. Local editable work
+remains in `/workspace/notebooks`; on CIT the example destination is
+`/home/jovyan/work`. Course originals live separately in `course-materials`.
+The Jupyter startup script no longer copies templates out of the app image.
+Existing student notebooks are never replaced. See [release workflow](deploy/RELEASE-WORKFLOW.md).
 
 ```bash
 git pull --ff-only
@@ -77,7 +82,8 @@ outside the installed Python package on both.
 - FINDINGZ_NOTEBOOK_TEMPLATE: editable nbformat-4 course template; use
   notebooks/templates/analysis_template.ipynb from the course checkout.
   Omit to use the packaged fallback. Exactly one code cell must have the metadata
-  tag findingz-settings; Finding Z replaces only that cell and clears outputs.
+  tag findingz-settings. The exporter fills this setup cell and any tagged student
+  choice cells, writes a companion settings JSON file, and clears outputs.
 - FINDINGZ_NOTEBOOK_URL_PREFIX: optional JupyterLab lab/tree/ URL prefix mapping
   exactly to FINDINGZ_NOTEBOOK_DIR. The app appends the new filename. Leave unset
   on CIT unless its routing is configured; saving still works and the file path

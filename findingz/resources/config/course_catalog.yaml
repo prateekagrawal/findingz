@@ -21,6 +21,11 @@ models:
     label: Standard Model (tree level)
     madgraph_name: sm
     enabled: true
+  # A restricted hypothesis, not a separate UFO: its process cards exclude Z/H.
+  qed_dilepton:
+    label: QED only (dilepton processes)
+    madgraph_name: sm
+    enabled: true
   loop_sm:
     label: Standard Model (loop-ready UFO)
     madgraph_name: loop_sm
@@ -79,7 +84,7 @@ colliders:
 
 processes:
   dy_ll:
-    label: "Drell–Yan: p p → e+ e- or μ+ μ-"
+    label: "p p → e+ e- or μ+ μ- (combined)"
     collider_ids: [lhc13]
     model_ids: [sm, loop_sm, blackbox_1]
     madgraph_lines:
@@ -88,7 +93,7 @@ processes:
     full_pipeline: true
     enabled: true
   dy_ee:
-    label: "Drell–Yan: p p → e+ e-"
+    label: "p p → e+ e-"
     collider_ids: [lhc13]
     model_ids: [sm, loop_sm, blackbox_1]
     madgraph_lines:
@@ -96,11 +101,30 @@ processes:
     full_pipeline: true
     enabled: true
   dy_mumu:
-    label: "Drell–Yan: p p → μ+ μ-"
+    label: "p p → μ+ μ-"
     collider_ids: [lhc13]
     model_ids: [sm, loop_sm, blackbox_1]
     madgraph_lines:
       - generate p p > mu+ mu- QED=2 QCD=0
+    full_pipeline: true
+    enabled: true
+  # Complete alternative predictions above retain photon–Z interference.
+  # Photon-only nulls exclude Z/H exchange at the same coupling order.
+  # Use the same collider, mass window, detector and channel for comparisons.
+  dy_ee_photon:
+    label: "p p → e+ e-"
+    collider_ids: [lhc13]
+    model_ids: [qed_dilepton]
+    madgraph_lines:
+      - generate p p > e+ e- / z h QED=2 QCD=0
+    full_pipeline: true
+    enabled: true
+  dy_mumu_photon:
+    label: "p p → μ+ μ-"
+    collider_ids: [lhc13]
+    model_ids: [qed_dilepton]
+    madgraph_lines:
+      - generate p p > mu+ mu- / z h QED=2 QCD=0
     full_pipeline: true
     enabled: true
   ee_mumu:

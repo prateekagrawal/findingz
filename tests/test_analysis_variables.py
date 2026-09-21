@@ -15,13 +15,13 @@ from findingz.hypotheses import AnalysisSample
 
 def test_process_tables_use_intersection_and_existing_columns():
     catalog = load_variable_catalog(Path(__file__).parents[1] / "config/analysis_variables.yaml")
-    catalog.processes["custom"] = ["mll", "leading_lepton_eta", "ptll"]
+    catalog.processes["custom"] = ["mll", "leading_lepton_eta", "leading_lepton_pt"]
     samples = [
         AnalysisSample(name, name, "generated", Path("unused.csv"), "test", {"process": process})
         for name, process in [("a", "dy_ll"), ("b", "custom")]
     ]
     frames = {
-        "a": pd.DataFrame({"mll": [90], "leading_lepton_eta": [0.2], "ptll": [0]}),
+        "a": pd.DataFrame({"mll": [90], "leading_lepton_eta": [0.2], "leading_lepton_pt": [45]}),
         "b": pd.DataFrame({"mll": [90], "leading_lepton_eta": [0.2]}),
     }
     assert list(catalog.available(samples, frames)) == ["mll", "leading_lepton_eta"]
@@ -51,3 +51,10 @@ def test_bad_live_catalog_does_not_silently_fall_back(tmp_path):
     path.write_text("schema_version: 99\n")
     with pytest.raises(ValueError):
         load_variable_catalog(path)
+
+
+def test_basic_variables_exclude_dilepton_pt():
+    catalog = load_variable_catalog(Path(__file__).parents[1] / "config/analysis_variables.yaml")
+    assert "ptll" not in catalog.variables
+    assert "ptll" not in catalog.default_variables
+    assert all("ptll" not in names for names in catalog.processes.values())

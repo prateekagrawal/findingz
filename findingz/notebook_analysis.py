@@ -1,4 +1,6 @@
 """Small notebook helpers; return ordinary pandas tables and matplotlib figures."""
+import json
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
@@ -6,7 +8,32 @@ from .catalog import load_catalog
 from .delphes import default_run_root
 from .hypotheses import build_sample_library, validate_counting_samples
 from .analysis_variables import AnalysisVariable, load_variable_catalog, apply_windows
-from .counting import summarize_cut_and_count
+from .counting import summarize_cut_and_count, compare_hypotheses
+
+
+def enable_inline_plots():
+    """Enable figure rendering in a notebook; do nothing in ordinary Python."""
+    try:
+        from IPython import get_ipython
+    except ImportError:
+        return
+    shell = get_ipython()
+    if shell is not None:
+        shell.run_line_magic("matplotlib", "inline")
+
+
+def load_analysis(filename):
+    """Load the settings saved beside a notebook, or in its configured directory."""
+    from .notebook_export import notebook_directory
+    path = Path(filename)
+    if not path.is_file() and not path.is_absolute():
+        path = notebook_directory() / path
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Cannot find {filename}. Keep the .settings.json file beside your notebook "
+            "and start the notebook from that directory."
+        )
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def available_samples():
@@ -78,9 +105,36 @@ def plot_samples(frames, library, observable="mll", *, shape_only=True, variable
     return fig,pd.DataFrame(rows)
 
 
+def compare_samples(library, null, alternative, *, cuts=None, channels=None,
+                    luminosity_fb=1., null_uncertainty=0., variables=None):
+    """Two complete predictions with identical selections; never sum hypotheses."""
+    if not null or not alternative:
+        return None
+    if null == alternative:
+        raise ValueError("Choose two different samples")
+    ids = [null, alternative]
+    missing = set(ids) - library.keys()
+    if missing:
+        raise ValueError(f"Unavailable samples: {sorted(missing)}")
+    validate_counting_samples([library[key] for key in ids])
+    frames = select_samples(library, ids, cuts=cuts, channels=channels,
+                            luminosity_fb=luminosity_fb, variables=variables)
+    return compare_hypotheses(frames[null], frames[alternative],
+                              null_uncertainty_fraction=null_uncertainty)
+
+
+def comparison_table(result):
+    if result is None:
+        return pd.Series({"Next step": "Choose a null and a complete alternative prediction."})
+    return pd.Series({"Null prediction": result.null_yield,
+                      "Alternative prediction": result.alternative_yield,
+                      "Excess / deficit (alternative - null)": result.difference,
+                      "Expected discovery / deficit sensitivity [sigma]": result.signed_significance})
+
+
 def count_samples(library, signal, backgrounds, *, cuts=None, channels=None,
                   luminosity_fb=1., background_uncertainty=.1, variables=None):
-    """Same expected-count calculation as the UI; no observed-data inference."""
+    """Legacy additive API retained for old saved notebooks, not the current UI."""
     if not signal or not backgrounds:
         return None
     ids = [signal,*backgrounds]
@@ -95,14 +149,19 @@ def count_samples(library, signal, backgrounds, *, cuts=None, channels=None,
         background_uncertainty_fraction=background_uncertainty)
 
 
-def count_table(result):
+def count_table(result, *, details=False):
+    """Predicted counts and rough discovery sensitivity, not an observed result."""
     if result is None:
         return pd.Series({"Next step":"Choose a signal and at least one background."})
-    return pd.Series({
+    summary = {
         "Expected signal":result.signal_yield,
         "Expected background":result.background_yield,
-        "Expected Asimov Z":result.asimov_significance,
-        "Approximate expected 95% signal limit [events]":result.approximate_expected_upper_limit_events,
-        "Approximate expected signal-strength limit":result.approximate_expected_signal_strength_limit,
-    })
-
+        "Estimated discovery significance [sigma]":
+            result.approximate_significance_with_systematic if result.background_yield > 0 else float("nan"),
+    }
+    if details:
+        summary.update({
+            "Signal + background":result.signal_yield + result.background_yield,
+            "Fractional background uncertainty":result.background_uncertainty_fraction,
+        })
+    return pd.Series(summary)

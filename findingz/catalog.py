@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
+from packaging.version import Version
+from . import __version__
 
 
 class Availability(BaseModel):
@@ -41,7 +43,18 @@ class DatasetEntry(Availability):
 
 class ModelEntry(Availability):
     label: str = Field(min_length=1, max_length=100)
-    madgraph_name: str = Field(pattern=r"^[A-Za-z0-9_+-]+$")
+    madgraph_name: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_+-]+$")
+    ufo_path: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def one_source(self):
+        if (self.madgraph_name is None) == (self.ufo_path is None):
+            raise ValueError("Specify exactly one of madgraph_name or ufo_path")
+        return self
+
+
+class DatasetFolder(Availability):
+    path: str = Field(min_length=1)
 
 
 class DetectorEntry(Availability):
@@ -97,6 +110,9 @@ class CourseFeatures(BaseModel):
 
 
 class CourseCatalog(BaseModel):
+    _source: Path | None = PrivateAttr(default=None)
+    minimum_findingz_version: str | None = None
+    dataset_folders: dict[str, DatasetFolder] = Field(default_factory=dict)
     schema_version: Literal[1] = 1
     title: str = "Finding Z course catalogue"
     features: CourseFeatures = Field(default_factory=CourseFeatures)
@@ -108,6 +124,8 @@ class CourseCatalog(BaseModel):
 
     @model_validator(mode="after")
     def validate_references(self) -> CourseCatalog:
+        if self.minimum_findingz_version and Version(__version__) < Version(self.minimum_findingz_version):
+            raise ValueError(f"This catalogue requires FindingZ >= {self.minimum_findingz_version}; installed: {__version__}. Ask CIT to update FindingZ.")
         for collider_id, collider in self.colliders.items():
             missing_detectors = set(collider.detector_ids) - set(self.detectors)
             if missing_detectors:
@@ -190,7 +208,9 @@ def load_catalog(path: Path | None = None) -> CourseCatalog:
     payload = yaml.safe_load(source.read_text())
     if not isinstance(payload, dict):
         raise TypeError(f"Course catalogue must contain a YAML mapping: {source}")
-    return CourseCatalog.model_validate(payload)
+    catalog = CourseCatalog.model_validate(payload)
+    catalog._source = source
+    return catalog
 
 
 def resolve_catalog_path(relative_or_absolute: str, source: Path | None = None) -> Path:

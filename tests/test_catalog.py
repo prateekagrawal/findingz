@@ -1,9 +1,35 @@
 from datetime import date
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from findingz.catalog import CourseCatalog, load_catalog, resolve_catalog_path
+from findingz.hep_pipeline import HepSimulationConfig, render_madgraph_process_card, render_madevent_commands
+
+
+@pytest.mark.parametrize("channel,leptons", [("ee", "e+ e-"), ("mumu", "mu+ mu-")])
+@pytest.mark.parametrize("full_pipeline", [False, True])
+def test_drell_yan_hypotheses_share_run_settings(channel, leptons, full_pipeline):
+    catalog = load_catalog()
+    available = catalog.available_processes("lhc13", "sm", full_pipeline=full_pipeline)
+    qed = catalog.available_processes("lhc13", "qed_dilepton", full_pipeline=full_pipeline)
+    null = qed[f"dy_{channel}_photon"]
+    alternative = available[f"dy_{channel}"]
+    assert null.label == alternative.label
+    assert catalog.models["qed_dilepton"].madgraph_name == "sm"
+    assert f"dy_{channel}_photon" not in available
+    assert set(qed) == {"dy_ee_photon", "dy_mumu_photon"}
+    assert null.madgraph_lines == [f"generate p p > {leptons} / z h QED=2 QCD=0"]
+    assert alternative.madgraph_lines == [f"generate p p > {leptons} QED=2 QCD=0"]
+    configs = [HepSimulationConfig(
+        process=key, process_lines=entry.madgraph_lines,
+        run_mode="full" if full_pipeline else "madgraph",
+    ) for key, entry in [(f"dy_{channel}_photon", null), (f"dy_{channel}", alternative)]]
+    for config in configs:
+        assert config.process_lines[0] in render_madgraph_process_card(config, Path("/tmp/process"))
+    assert render_madevent_commands(configs[0], "run_01") == render_madevent_commands(configs[1], "run_01")
+    assert not catalog.available_processes("lep91", "qed_dilepton")
 
 
 def test_default_catalog_exposes_only_released_entries() -> None:

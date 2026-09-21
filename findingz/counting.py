@@ -38,6 +38,50 @@ def weighted_yield(frame: pd.DataFrame) -> float:
     return float(weights.sum())
 
 
+@dataclass(frozen=True)
+class HypothesisComparison:
+    null_yield: float
+    alternative_yield: float
+    difference: float
+    signed_significance: float | None
+    null_uncertainty_fraction: float
+
+
+def compare_hypotheses(null: pd.DataFrame, alternative: pd.DataFrame, *,
+                       null_uncertainty_fraction: float = 0.0) -> HypothesisComparison:
+    """Compare two complete predictions, never add them or treat either as data.
+
+    Signed square root of the Asimov Poisson likelihood-ratio statistic.
+    A nonzero null uncertainty is a Gaussian auxiliary constraint, profiled
+    over a non-negative null rate. This is not an exact observed p-value.
+    Undefined when the nominal null yield is zero; finite-MC uncertainty omitted.
+    """
+    if not math.isfinite(null_uncertainty_fraction) or not 0 <= null_uncertainty_fraction <= 1:
+        raise ValueError("Null uncertainty fraction must lie between zero and one")
+    n0, n1 = weighted_yield(null), weighted_yield(alternative)
+    difference = n1 - n0
+    significance = None
+    if n0 > 0:
+        variance = (null_uncertainty_fraction * n0) ** 2
+        fitted_null = n0
+        penalty = 0.0
+        if variance > 0:
+            offset = n0 - variance
+            radical = math.hypot(offset, 2 * math.sqrt(n1 * variance))
+            fitted_null = ((offset + radical) / 2 if offset >= 0 else
+                           (2 * n1 * variance / (radical - offset)))
+            penalty = (fitted_null - n0) ** 2 / variance
+        if n1 == 0:
+            deviance = 2 * fitted_null
+        else:
+            ratio = (n1 - fitted_null) / fitted_null
+            # log1p retains precision for nearly identical predictions.
+            deviance = 2 * (n1 * math.log1p(ratio) - (n1 - fitted_null))
+        significance = math.copysign(math.sqrt(max(0.0, deviance + penalty)), difference)
+    return HypothesisComparison(n0, n1, difference, significance,
+                                null_uncertainty_fraction)
+
+
 def asimov_significance(signal: float, background: float) -> float:
     """Median expected discovery significance for a known background."""
     if signal < 0.0 or background < 0.0:

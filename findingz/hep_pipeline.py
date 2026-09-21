@@ -18,6 +18,8 @@ import pandas as pd
 from pydantic import BaseModel, Field, model_validator
 
 from .generator_details import retain_generator_details
+from .external_models import ufo_digest
+from . import __version__
 from .physics import add_observables
 from .simulation import SimulationRun
 
@@ -38,6 +40,7 @@ class HepSimulationConfig(BaseModel):
     collider_id: str = Field(default="custom", pattern=r"^[A-Za-z0-9_-]+$")
     collider: HepCollider = "pp"
     model: str = Field(default="sm", pattern=r"^[A-Za-z0-9_+-]+$")
+    model_ufo_path: str | None = None
     process: str = Field(default="dy_ll", pattern=r"^[A-Za-z0-9_-]+$")
     process_lines: list[str] = Field(default_factory=list, max_length=8)
     run_mode: HepRunMode = "full"
@@ -157,7 +160,10 @@ def probe_hep_toolchain() -> HepToolchainReport:
     )
 
 
-def render_madgraph_process_card(config: HepSimulationConfig, process_dir: Path) -> str:
+def render_madgraph_process_card(config: HepSimulationConfig, process_dir: Path, model_directory: Path | None = None) -> str:
+    model = str(model_directory or config.model_ufo_path or config.model)
+    if not re.fullmatch(r"[A-Za-z0-9_./+\-]+", model):
+        raise ValueError("MadGraph import path must not contain whitespace or command characters")
     built_in_lines = {
         "dy_ee": ["generate p p > e+ e- QED=2 QCD=0"],
         "dy_mumu": ["generate p p > mu+ mu- QED=2 QCD=0"],
@@ -175,7 +181,7 @@ def render_madgraph_process_card(config: HepSimulationConfig, process_dir: Path)
     return "\n".join(
         [
             "set automatic_html_opening False",
-            f"import model {config.model}",
+            f"import model {model}",
             *process_lines,
             f"output {process_dir} -f",
             "quit",
@@ -284,6 +290,10 @@ def _pipeline_hash(config: HepSimulationConfig, image_id: str) -> str:
         "config": config.model_dump(mode="json", exclude={"label"}),
         "image_id": image_id,
     }
+    if config.model_ufo_path:
+        payload["ufo_sha256"] = ufo_digest(config.model_ufo_path)
+    else:
+        payload["config"].pop("model_ufo_path", None)
     if config.run_mode == "full":
         configured = os.environ.get("FINDINGZ_CARD_ROOT")
         root = Path(configured).expanduser() if configured else Path(__file__).parent / "resources"
@@ -567,6 +577,7 @@ def run_hep_simulation(
             "Launch FindingZ inside the course HEP container."
         )
     runner = runner or SubprocessRunner()
+    expected_ufo_hash = ufo_digest(config.model_ufo_path) if config.model_ufo_path else None
     run_dir = hep_run_directory(config, Path(run_root), toolchain.image_id)
     run_id = run_dir.name
     truth_path = run_dir / "truth.csv"
@@ -600,6 +611,7 @@ def run_hep_simulation(
     logs_dir.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, object] = {
         "schema_version": 2,
+        "findingz_version": __version__,
         "run_id": run_id,
         "label": config.label or run_id,
         "created_at": datetime.now(UTC).isoformat(),
@@ -616,7 +628,19 @@ def run_hep_simulation(
     try:
         notify("Building the MadGraph process", 0.10)
         process_card = cards_dir / "madgraph_process.mg5"
-        process_card.write_text(render_madgraph_process_card(config, process_dir))
+        model_directory = None
+        if config.model_ufo_path:
+            model_directory = run_dir / "ufo_model"
+            before = ufo_digest(config.model_ufo_path)
+            if before != expected_ufo_hash:
+                raise RuntimeError("UFO model changed while preparing the run; retry with a stable model directory")
+            shutil.copytree(config.model_ufo_path, model_directory, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"))
+            if ufo_digest(model_directory) != before:
+                raise RuntimeError("UFO model changed while being copied; retry with a stable model directory")
+            manifest["ufo_sha256"] = before
+            manifest["ufo_snapshot"] = "ufo_model"
+        process_card.write_text(render_madgraph_process_card(config, process_dir, model_directory))
         runner.run(
             [str(toolchain.mg5_executable), str(process_card)],
             cwd=run_dir,

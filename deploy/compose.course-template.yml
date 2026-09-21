@@ -1,8 +1,3 @@
-# Optional: requires Docker Desktop access to the host course checkout.
-# From the Finding Z repo, add -f deploy/compose.course-template.yml to compose.
-services:
-  findingz:
-    volumes:
-      - ${FINDINGZ_COURSE_ROOT:-../course-materials}/notebooks/templates:/course-templates:ro
-    environment:
-      FINDINGZ_NOTEBOOK_TEMPLATE: /course-templates/analysis_template.ipynb
+# Compatibility placeholder: the primary Compose file now mounts the entire
+# external course repository for both FindingZ and JupyterLab by default.
+services: {}

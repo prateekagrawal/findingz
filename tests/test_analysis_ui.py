@@ -48,7 +48,11 @@ def test_plot_selector_allows_mixed_configurations(tmp_path, monkeypatch, includ
     assert "Collider configuration" not in [widget.label for widget in app.selectbox]
     selector = next(widget for widget in app.multiselect if widget.label == "Datasets to plot")
     assert selector.options == [sample.menu_label for sample in library.values()]
-    assert selector.value == list(library)
+    assert selector.value == []
+    assert app.selectbox(key="count_null").value is None
+    assert not app.dataframe
+    selector.set_value(list(library)).run()
+    app.selectbox(key="count_null").set_value(next(iter(library))).run()
     assert not app.error
     assert app.dataframe[-1].value["sample"].tolist() == [s.label for s in library.values()]
     observable = app.selectbox(key="analysis_observable")
@@ -59,8 +63,8 @@ def test_plot_selector_allows_mixed_configurations(tmp_path, monkeypatch, includ
     plot_cuts = next(widget for widget in app.multiselect
                      if widget.key and widget.key.startswith("plot_cut_variables_"))
     assert observable.options == plot_cuts.options
-    assert app.multiselect(key="count_backgrounds").options == []
-    assert app.multiselect(key="count_backgrounds").disabled
+    assert app.selectbox(key="count_alternative").options == []
+    assert app.selectbox(key="count_alternative").disabled
     assert not any("Soper" in label for label in observable.options)
     assert all(isinstance(slider.value, tuple) and len(slider.value) == 2
                for slider in plot_sliders)
@@ -84,7 +88,7 @@ def test_plot_selector_allows_mixed_configurations(tmp_path, monkeypatch, includ
 
     assert not [button for button in app.button if button.label == "Run cut-and-count"]
     assert not app.exception
-    assert any("No compatible background" in info.value for info in app.info)
+    assert any("No compatible alternative" in info.value for info in app.info)
 
     # Removing a selected variable must remove the cut as well as its slider.
     next(widget for widget in app.multiselect

@@ -1,5 +1,9 @@
 # Finding Z — one application, local and CIT deployments
 
+For the current local two-repository setup and ordered publication steps, see
+`RELEASE-WORKFLOW.md` and the root README. Course files are now external by default
+in local Compose as well as on CIT; the app image does not seed student notebooks.
+
 This is the application repository layout. The matching `course-materials` tree
 contains live course configuration and student notebooks. No upstream simulation
 installations, production event data, Docker image archives or private student work belong
@@ -44,7 +48,8 @@ the server, proxy, or authentication.
 - FINDINGZ_NOTEBOOK_TEMPLATE: editable nbformat-4 course template; use
   notebooks/templates/analysis_template.ipynb from the course checkout.
   Omit to use the packaged fallback. Exactly one code cell must have the metadata
-  tag findingz-settings; Finding Z replaces only that cell and clears outputs.
+  tag findingz-settings; Finding Z fills that setup cell and optional tagged
+  choice cells, writes companion settings JSON, and clears outputs.
 - FINDINGZ_NOTEBOOK_URL_PREFIX: optional JupyterLab lab/tree/ URL prefix mapping
   exactly to FINDINGZ_NOTEBOOK_DIR. The app appends the new filename. Leave unset
   on CIT unless its routing is configured; saving still works and the file path
@@ -89,8 +94,8 @@ Run tests and build a wheel before tagging a release. Test that same wheel local
 and in CIT: MadGraph-only, full pipeline/ROOT, plotting, Jupyter, and persistence.
 The repository layout and unit tests do not establish CIT end-to-end compatibility.
 
-The export includes one fallback notebook template solely for the existing local
-Docker startup. The course repository is the authoring location after handoff.
+The package includes a fallback template for standalone use only. The course
+repository is the authoring location for both local Compose and CIT deployments.
 The source checkout also retains the existing small synthetic CSVs, example
 catalog and course-note fixtures for regression tests. They are not included in
 the installed Python wheel and are not the centrally released course datasets.

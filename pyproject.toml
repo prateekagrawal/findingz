@@ -4,11 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "findingz"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local deterministic Finding Z laboratory for PHYS 225A"
 requires-python = ">=3.11"
 license = {file = "LICENSE"}
 dependencies = [
+  "packaging>=23",
   "matplotlib>=3.9",
   "numpy>=2.0",
   "pandas>=2.2",

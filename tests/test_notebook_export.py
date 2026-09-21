@@ -41,6 +41,54 @@ def test_external_template_reload_and_error(tmp_path, monkeypatch):
         save_notebook("bad")
 
 
+def test_short_settings_and_editable_choices(tmp_path, monkeypatch):
+    from findingz.notebook_analysis import load_analysis
+    monkeypatch.setenv("FINDINGZ_NOTEBOOK_DIR", str(tmp_path))
+    monkeypatch.delenv("FINDINGZ_NOTEBOOK_TEMPLATE", raising=False)
+    snapshot = {"plot": {"samples": ["signal", "background"], "observable": "mll",
+        "windows": {"mll": [80, 100]}, "sample_configs": {"signal": "x" * 10000}},
+        "count": None}
+    path = save_notebook("short", snapshot)
+    doc = json.loads(path.read_text())
+    tagged = {tag: cell["source"] for cell in doc["cells"]
+              for tag in cell.get("metadata", {}).get("tags", [])}
+    assert len(tagged["findingz-settings"].splitlines()) == 4
+    assert "sample_configs" not in path.read_text()
+    namespace = {}
+    exec(tagged["findingz-plot-choices"], namespace)
+    exec(tagged["findingz-cut-choices"], namespace)
+    assert namespace["sample_ids"] == ["signal", "background"]
+    assert namespace["cuts"] == {"mll": [80, 100]}
+    assert load_analysis(path.with_suffix(".settings.json")) == snapshot
+    # Moving the pair together works without the original notebook directory.
+    moved = tmp_path / "moved"
+    moved.mkdir()
+    sidecar = path.with_suffix(".settings.json")
+    sidecar.rename(moved / sidecar.name)
+    path.rename(moved / path.name)
+    monkeypatch.chdir(moved)
+    monkeypatch.setenv("FINDINGZ_NOTEBOOK_DIR", str(tmp_path / "unavailable"))
+    assert load_analysis(sidecar.name) == snapshot
+    with pytest.raises(FileNotFoundError, match="Keep the .settings.json"):
+        load_analysis("missing.settings.json")
+
+
+def test_existing_settings_are_never_overwritten(tmp_path, monkeypatch):
+    monkeypatch.setenv("FINDINGZ_NOTEBOOK_DIR", str(tmp_path))
+    orphan = tmp_path / "analysis.settings.json"
+    orphan.write_text("original")
+    path = save_notebook("analysis")
+    assert path.name == "analysis-2.ipynb"
+    assert orphan.read_text() == "original"
+
+
+def test_export_does_not_reinterpret_legacy_count_roles(tmp_path, monkeypatch):
+    monkeypatch.setenv("FINDINGZ_NOTEBOOK_DIR", str(tmp_path))
+    with pytest.raises(ValueError, match="legacy additive"):
+        save_notebook("legacy", {"count": {"signal": "s", "backgrounds": ["b"]}})
+    assert not list(tmp_path.glob("*.ipynb"))
+
+
 def test_ui_saves_without_server(tmp_path, monkeypatch):
     monkeypatch.setenv("FINDINGZ_NOTEBOOK_DIR", str(tmp_path))
     monkeypatch.setenv("FINDINGZ_RUN_ROOT", str(tmp_path / "runs"))

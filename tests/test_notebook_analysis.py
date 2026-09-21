@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 from findingz.hypotheses import AnalysisSample
-from findingz.notebook_analysis import select_samples, plot_samples, count_samples
+from findingz.notebook_analysis import select_samples, plot_samples, count_samples, count_table
 
 @pytest.fixture
 def library(tmp_path):
@@ -27,6 +27,8 @@ def test_plot_and_count(library):
     result = count_samples(library,"signal",["background"],cuts={"mll":(90.,100.)})
     assert result.signal_yield==2000
     assert result.background_yield==2000
+    assert len(count_table(result)) == 3
+    assert len(count_table(result, details=True)) == 5
     assert count_samples(library,None,[]) is None
 
 def test_missing_sample_and_cut_errors(library):
@@ -34,4 +36,3 @@ def test_missing_sample_and_cut_errors(library):
         select_samples(library,["missing"])
     with pytest.raises(ValueError,match="Unknown cut"):
         select_samples(library,["signal"],cuts={"typo":(0,1)})
-

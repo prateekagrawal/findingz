@@ -10,11 +10,6 @@ variables:
     label: Dilepton invariant mass [GeV]
     description: Invariant mass of the selected lepton pair.
     step: 1.0
-  ptll:
-    column: ptll
-    label: Dilepton pT [GeV]
-    description: Magnitude of the vector sum of the two lepton transverse momenta.
-    step: 1.0
   leading_lepton_pt:
     column: leading_lepton_pt
     label: Leading lepton pT [GeV]
@@ -37,11 +32,13 @@ variables:
     step: 0.1
 
 # Used for prepared datasets and old/custom runs without a matching process ID.
-default_variables: &dilepton [mll, ptll, leading_lepton_pt, subleading_lepton_pt, leading_lepton_eta, subleading_lepton_eta]
+default_variables: &dilepton [mll, leading_lepton_pt, subleading_lepton_pt, leading_lepton_eta, subleading_lepton_eta]
 processes:
   dy_ll: *dilepton
   dy_ee: *dilepton
   dy_mumu: *dilepton
+  dy_ee_photon: *dilepton
+  dy_mumu_photon: *dilepton
   ee_mumu: *dilepton
   ee_zh_mumu: *dilepton
   ee_ww_mumu: *dilepton

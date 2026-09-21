@@ -22,8 +22,10 @@ from findingz.analysis_variables import (
     slider_bounds,
     variable_catalog_path,
 )
-from findingz.catalog import catalog_path, load_catalog
-from findingz.counting import summarize_cut_and_count, weighted_yield
+from findingz.catalog import catalog_path, load_catalog, resolve_catalog_path
+from findingz import __version__
+from findingz.external_models import ufo_digest
+from findingz.counting import compare_hypotheses, weighted_yield
 from findingz.event_display import render_event_inspector
 from findingz.generator_details import render_generator_details, render_run_files
 from findingz.hep_pipeline import (
@@ -50,6 +52,25 @@ from findingz.simulation import (
 )
 
 logger = logging.getLogger("findingz.app")
+
+
+def _luminosity_input(key: str) -> float:
+    """Display selectable units; return fb^-1 for weights and saved notebooks."""
+    factors = {"fb⁻¹": 1.0, "pb⁻¹": 1e-3, "nb⁻¹": 1e-6}
+    value_column, unit_column = st.columns([2, 1])
+    with unit_column:
+        unit = st.selectbox("Luminosity unit", list(factors), key=f"{key}_unit")
+    previous = st.session_state.get(f"{key}_display_unit", "fb⁻¹")
+    if previous != unit and key in st.session_state:
+        st.session_state[key] *= factors[previous] / factors[unit]
+    st.session_state[f"{key}_display_unit"] = unit
+    with value_column:
+        value = st.number_input(
+            "Integrated luminosity", min_value=0.0,
+            value=1.0 / factors[unit], format="%.6g", key=key,
+            help="Changing units preserves the luminosity. Enter a new value to change the exposure.",
+        )
+    return float(value) * factors[unit]
 
 
 def _run_root() -> Path:
@@ -343,6 +364,12 @@ def _render_local_simulator() -> None:
                 format_func=lambda item: models[item].label,
             )
         model_entry = models[model_id]
+        if model_entry.ufo_path:
+            try:
+                ufo_digest(resolve_catalog_path(model_entry.ufo_path, catalog._source))
+            except (ValueError, OSError) as error:
+                st.error(f"Course model unavailable: {error}")
+                return
         processes = catalog.available_processes(collider_id, model_id, full_pipeline=is_full)
         with selection_columns[2]:
             process_id = st.selectbox(
@@ -454,7 +481,9 @@ def _render_local_simulator() -> None:
                 process_lines=process_entry.madgraph_lines,
                 collider_id=collider_id,
                 collider=collider_entry.beam_type,
-                model=model_entry.madgraph_name,
+                model=model_entry.madgraph_name or model_id,
+                model_ufo_path=(str(resolve_catalog_path(model_entry.ufo_path, catalog._source))
+                                if model_entry.ufo_path else None),
                 run_mode="full" if is_full else "madgraph",
                 beam_energy_gev=beam_energy,
                 min_mass_gev=min_mass,
@@ -569,6 +598,9 @@ def _render_jupyter_entrypoint() -> None:
             st.caption(f"Previously saved notebook (unchanged): {saved}")
         else:
             st.success(f"Saved notebook: {saved}")
+        settings_file = Path(saved).with_suffix(".settings.json")
+        if settings_file.is_file():
+            st.caption(f"Saved settings: {settings_file.name}. Keep this file with the notebook when downloading or submitting it.")
         url = notebook_url(saved)
         if url:
             st.link_button("Open saved notebook in JupyterLab", url)
@@ -739,13 +771,7 @@ def _render_dataset_plot(
         )
         generated = any(sample.kind == "generated" for sample in selected_samples)
         luminosity = (
-            st.number_input(
-                "Integrated luminosity [fb⁻¹]",
-                min_value=0.001,
-                max_value=100_000.0,
-                value=1.0,
-                key="plot_luminosity",
-            )
+            _luminosity_input("plot_luminosity")
             if generated and normalization == "Expected yields"
             else 1.0
         )
@@ -808,84 +834,56 @@ def _render_dataset_plot(
     return channels, windows
 
 
-def _render_limit_estimate(
+def _render_discovery_estimate(
     library: dict[str, AnalysisSample],
     *,
     plot_selection: tuple[list[str], dict[str, tuple[float, float]]] | None,
 ) -> None:
     st.divider()
-    st.subheader("Cut-and-count limit estimate")
+    st.subheader("Cut-and-count hypothesis comparison")
     st.caption(
-        "Choose a signal from any available sample; background choices match its configuration. "
+         "Compare two complete predictions for the same final state: null versus alternative. Neither is added to the other. "
         "These choices are independent of the plot. "
         "Define cuts here, or copy the current plot cuts once and edit them independently."
     )
     role_samples = list(library.values())
     if len(role_samples) < 2:
-        st.info("At least two available samples are needed to assign signal and background roles.")
+        st.info("At least two samples are needed to compare complete predictions.")
         return
 
-    role_ids = [sample.sample_id for sample in role_samples]
-    role_by_id = {sample.sample_id: sample for sample in role_samples}
+    role_ids = list(library)
     role_columns = st.columns(2)
     with role_columns[0]:
-        signal_id = st.selectbox(
-            "1. Signal sample",
-            role_ids,
-            index=0,
-            format_func=lambda item: role_by_id[item].menu_label,
-            key="count_signal",
+        null_id = st.selectbox(
+            "1. Null prediction", role_ids, index=None,
+            format_func=lambda item: library[item].menu_label,
+            key="count_null", placeholder="Choose the complete null prediction",
         )
-    signal = role_by_id[signal_id]
-    background_options = compatible_counting_backgrounds(signal, library)
-    previous_backgrounds = st.session_state.get("count_backgrounds")
-    removed_backgrounds = []
-    if previous_backgrounds is not None:
-        retained = [
-            sample_id for sample_id in previous_backgrounds if sample_id in background_options
-        ]
-        removed_backgrounds = [
-            sample_id for sample_id in previous_backgrounds if sample_id not in background_options
-        ]
-        if removed_backgrounds:
-            st.session_state["count_backgrounds"] = retained
+    if null_id is None:
+        st.info("Choose a null prediction first. Neither prediction is selected automatically.")
+        return
+    null_sample = library[null_id]
+    alternative_options = compatible_counting_backgrounds(null_sample, library)
+    previous = st.session_state.get("count_alternative")
+    if previous is not None and previous not in alternative_options:
+        st.session_state["count_alternative"] = None
+        st.info("Cleared the alternative because it no longer matches the null configuration.")
     with role_columns[1]:
-        background_ids = st.multiselect(
-            "2. Compatible background samples",
-            background_options,
-            default=None,
-            format_func=lambda item: role_by_id[item].menu_label,
-            key="count_backgrounds",
-            disabled=not background_options,
-            help=(
-                "Matches the signal's collider, beam energy, simulation level, detector, "
-                "output profile, and generated mass range, with cross-section normalization. "
-                "Processes and physics models may differ."
-            ),
+        alternative_id = st.selectbox(
+            "2. Complete alternative prediction", alternative_options, index=None,
+            format_func=lambda item: library[item].menu_label,
+            key="count_alternative", disabled=not alternative_options,
+            placeholder="Choose the complete alternative",
+            help="Includes all backgrounds as well as the effect being tested. The two samples are never added.",
         )
-    if removed_backgrounds:
-        names = ", ".join(
-            library[item].label if item in library else item for item in removed_backgrounds
-        )
-        st.info(f"Cleared backgrounds that no longer match the signal: {names}.")
-    if not background_options:
-        try:
-            validate_counting_samples([signal])
-        except ValueError as error:
-            st.warning(f"This signal is not ready for counting: {error}")
-        else:
-            st.info(
-                "No compatible background samples are available. Choose another signal "
-                "or generate a background with the same simulation configuration."
-            )
-        _render_sample_details([signal], "Counting sample configurations")
+    if not alternative_options:
+        st.info("No compatible alternative is available. Match the collider, energy, detector and generator acceptance.")
         return
-    if not background_ids:
-        st.info("Choose one or more compatible background samples in step 2 to continue.")
+    if alternative_id is None:
+        st.info("Choose a complete alternative prediction to continue.")
         return
-
-    backgrounds = [role_by_id[sample_id] for sample_id in background_ids]
-    selected_samples = [signal, *backgrounds]
+    alternative = library[alternative_id]
+    selected_samples = [null_sample, alternative]
     all_generated = all(sample.kind == "generated" for sample in selected_samples)
     compatibility_error = None
     try:
@@ -962,24 +960,19 @@ def _render_limit_estimate(
             revision=revision,
         )
         luminosity = (
-            st.number_input(
-                "Integrated luminosity [fb⁻¹]",
-                min_value=0.001,
-                max_value=100_000.0,
-                value=1.0,
-                key="analysis_luminosity",
-            )
+            _luminosity_input("analysis_luminosity")
             if all_generated
             else 1.0
         )
         background_uncertainty = st.slider(
-            "Relative background uncertainty",
+            "Relative null-prediction uncertainty",
             0,
             50,
-            10,
+            0,
             1,
             format="%d%%",
-            key="analysis_background_uncertainty",
+            key="comparison_null_uncertainty",
+            help="At 0%, use a known-null Poisson likelihood. Otherwise profile the null rate with a Gaussian constraint of this relative width. Finite Monte Carlo uncertainty is not included.",
         )
         calculate = st.button(
             "Run cut-and-count",
@@ -990,11 +983,11 @@ def _render_limit_estimate(
 
     if compatibility_error is None:
         st.session_state["notebook_count"] = {
-            "signal": signal.sample_id, "backgrounds": background_ids,
+            "mode": "hypothesis_comparison", "null": null_id, "alternative": alternative_id,
             "channels": channels, "windows": windows,
             "variables": {name: value.model_dump() for name, value in variables.items()},
             "luminosity_fb": float(luminosity), "expected_yields": True,
-            "background_uncertainty_fraction": background_uncertainty / 100.0,
+            "null_uncertainty_fraction": background_uncertainty / 100.0,
             "sample_configs": {sample.sample_id: sample.config for sample in selected_samples},
         }
     if not calculate:
@@ -1002,7 +995,7 @@ def _render_limit_estimate(
             st.info(
                 "Choose compatible samples to run the count."
                 if compatibility_error
-                else "Fix the signal region, then run the counting experiment."
+                else "Fix the selection, then compare the predicted counts."
             )
         return
 
@@ -1016,14 +1009,11 @@ def _render_limit_estimate(
             windows=windows,
             variables=variables,
         )
-        signal_frame = frames[signal.sample_id]
-        background_frame = pd.concat(
-            [frames[sample.sample_id] for sample in backgrounds], ignore_index=True
-        )
-        count = summarize_cut_and_count(
-            signal_frame,
-            background_frame,
-            background_uncertainty_fraction=background_uncertainty / 100.0,
+        null_frame = frames[null_id]
+        alternative_frame = frames[alternative_id]
+        count = compare_hypotheses(
+            null_frame, alternative_frame,
+            null_uncertainty_fraction=background_uncertainty / 100.0,
         )
     except Exception as error:
         logger.exception("Cut-and-count failed")
@@ -1032,66 +1022,62 @@ def _render_limit_estimate(
         return
 
     with display:
-        first, second, third, fourth = st.columns(4)
-        first.metric("Expected signal S", f"{count.signal_yield:.3g}")
-        second.metric("Expected background B", f"{count.background_yield:.3g}")
-        third.metric("S / B", f"{count.signal_to_background:.3g}")
-        fourth.metric("Expected Asimov Z", f"{count.asimov_significance:.3g}")
-        limit_left, limit_middle, limit_right = st.columns(3)
-        limit_left.metric(
-            "Approx. expected 95% S limit",
-            f"{count.approximate_expected_upper_limit_events:.3g} events",
-        )
-        limit_middle.metric(
-            "Approx. expected μ₉₅",
-            f"{count.approximate_expected_signal_strength_limit:.3g}",
-        )
-        if signal.cross_section_pb is not None:
-            cross_section_limit = (
-                count.approximate_expected_signal_strength_limit * signal.cross_section_pb
-            )
-            limit_right.metric("Approx. cross-section limit", f"{cross_section_limit:.3g} pb")
+        first, second, third = st.columns(3)
+        number = lambda value: f"{value:,.2f}"
+        first.metric("Null prediction", number(count.null_yield), help="Predicted selected events under the null hypothesis at this luminosity.")
+        second.metric("Alternative prediction", number(count.alternative_yield), help="Complete predicted selected events, including backgrounds and the effect being tested.")
+        third.metric("Excess / deficit (alternative − null)", number(count.difference))
+        st.write(f"Null: **{number(count.null_yield)}** events; alternative: **{number(count.alternative_yield)}** events. "
+                 f"The difference is **{number(count.difference)}** events. These predictions are not added.")
+        if count.signed_significance is None:
+            st.info("Approximate expected separation is undefined: the null predicts zero selected events. "
+                    "Zero simulated events do not establish an exactly zero physical rate.")
         else:
-            limit_right.metric("Cross-section limit", "No physical normalization")
-        rows = [
-            {
-                "role": "signal",
-                "sample": signal.label,
-                "selected rows": len(signal_frame),
-                "expected yield": weighted_yield(signal_frame),
-            },
-            *[
-                {
-                    "role": "background",
-                    "sample": sample.label,
-                    "selected rows": len(frames[sample.sample_id]),
-                    "expected yield": weighted_yield(frames[sample.sample_id]),
-                }
-                for sample in backgrounds
-            ],
-        ]
-        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-        st.write(
-            f"Naive $S/\\sqrt{{B}} = {count.signal_over_sqrt_background:.3g}$; "
-            f"with the selected background uncertainty, "
-            f"$S/\\sqrt{{B + (\\delta_B B)^2}} = "
-            f"{count.approximate_significance_with_systematic:.3g}$."
-        )
-        st.warning(
-            "The 95% limits use a one-sided Gaussian approximation with a three-event "
-            "zero-background floor. They are teaching estimates, not CLs or a likelihood fit."
-        )
+            direction = "excess" if count.difference > 0 else "deficit" if count.difference < 0 else "no difference"
+            label = "Expected discovery sensitivity" if count.difference >= 0 else "Expected deficit sensitivity"
+            st.write(f"**{label}: {count.signed_significance:+.2f} σ ({direction}).**")
+        with st.expander("What does this sensitivity mean? · Statistics reading"):
+            st.markdown(
+                "This uses the **Asimov approximation**: pretend the observed count equals "
+                "the alternative's expected count, without random fluctuations. It estimates "
+                "sensitivity, not a discovery measured from data. Actual observed counts are "
+                "integers; for a few events, use an exact Poisson test with the appropriate "
+                "background uncertainties. A deficit is not an excess discovery.\n\n"
+                "**Start here:** [PDG Statistics review](https://pdg.lbl.gov/2025/reviews/rpp2025-rev-statistics.pdf), "
+                "sections 40.1 and 40.3: likelihoods, hypothesis tests, p-values and significance. "
+                "A p-value is not the probability that the null hypothesis is true.\n\n"
+                "**Calculation details:** [Cowan et al., Asymptotic formulae for likelihood-based tests of new physics]"
+                "(https://arxiv.org/abs/1007.1727), especially the Asimov construction and counting experiment."
+            )
+        if count.null_uncertainty_fraction == 0:
+            st.latex(r"Z_A = \operatorname{sgn}(N_1-N_0)\sqrt{2[N_1\ln(N_1/N_0)-N_1+N_0]}")
+        else:
+            st.caption("The Poisson likelihood profiles the null rate with a Gaussian constraint centred on N₀, of width δ₀N₀.")
+        st.caption("N₀ is the null count and N₁ the complete alternative count. The sign distinguishes an excess from a deficit. "
+                   "This is expected sensitivity, not a significance measured from data. It is not an exact Poisson p-value.")
+        if count.null_yield > 0 and (count.null_yield < 10 or count.alternative_yield < 10):
+            st.warning("For small counts, the Asimov sigma is only an approximation. An observed integer count requires a Poisson tail calculation.")
+        st.caption("Both samples must describe the same final states and acceptance. Configuration matching alone cannot establish a valid physics comparison.")
+        st.caption("Finite-simulation uncertainties are not included. Comparing two samples of the same physics is not a discovery test, even if the displayed separation is large.")
+        with st.expander("Details: sample yields and statistical assumptions"):
+            st.dataframe(pd.DataFrame([
+                {"role": role, "sample": sample.label, "selected rows": len(frames[sample.sample_id]),
+                 "expected yield": weighted_yield(frames[sample.sample_id])}
+                for role, sample in [("null", null_sample), ("alternative", alternative)]
+            ]), hide_index=True, width="stretch")
+            st.caption("Selected rows count simulated events; yields include cross-section and luminosity weights. "
+                       "Finite-simulation uncertainties are not included: differences between two simulations of the same physics are not evidence of discovery.")
         with st.expander("Reproducible analysis specification"):
             st.json(
                 {
-                    "signal": signal.sample_id,
-                    "backgrounds": [sample.sample_id for sample in backgrounds],
+                    "mode": "hypothesis_comparison",
+                    "null": null_id, "alternative": alternative_id,
                     "channels": channels,
                     "variable_catalogue": str(variable_catalog_path()),
                     "variables": {name: value.model_dump() for name, value in variables.items()},
                     "counting_windows": windows,
                     "luminosity_fb": luminosity if all_generated else None,
-                    "background_uncertainty_fraction": background_uncertainty / 100.0,
+                    "null_uncertainty_fraction": background_uncertainty / 100.0,
                 }
             )
 
@@ -1099,12 +1085,16 @@ def _render_limit_estimate(
 def _render_event_explorer() -> None:
     st.header("Event analysis")
     st.caption(
-        "Choose any available datasets to compare. Assign signal and background roles only if "
-        "you continue to the cut-and-count limit estimate."
+        "Choose any available datasets to compare. Choose null and alternative predictions only if "
+        "you continue to the cut-and-count comparison."
     )
     st.session_state["notebook_plot"] = None
     st.session_state["notebook_count"] = None
-    library = build_sample_library(load_catalog(), _run_root())
+    try:
+        library = build_sample_library(load_catalog(), _run_root())
+    except (ValueError, OSError) as error:
+        st.error(f"Cannot load course samples: {error}")
+        return
     if not library:
         st.info(
             "No samples are available yet. Generate a run or add completed runs to the catalogue."
@@ -1113,7 +1103,7 @@ def _render_event_explorer() -> None:
         return
 
     plot_selection = _render_sample_plot_controls(library)
-    _render_limit_estimate(library, plot_selection=plot_selection)
+    _render_discovery_estimate(library, plot_selection=plot_selection)
     _render_jupyter_entrypoint()
 
 
@@ -1121,11 +1111,10 @@ def _render_sample_plot_controls(
     library: dict[str, AnalysisSample],
 ) -> tuple[list[str], dict[str, tuple[float, float]]] | None:
     choices = list(library)
-    default_datasets = choices[: min(3, len(choices))]
     selected_ids = st.multiselect(
         "Datasets to plot",
         choices,
-        default=default_datasets,
+        default=[],
         format_func=lambda item: library[item].menu_label,
         help="Select any available sample. Generation details are listed below.",
     )
@@ -1196,7 +1185,7 @@ except Exception as error:
 
 with st.sidebar:
     st.caption(active_catalog.title)
-    st.caption(f"Catalogue: `{catalog_path()}`")
+    st.caption(f"FindingZ {__version__} · Catalogue: `{catalog_path()}`")
 
 simulation_tab, event_tab = st.tabs(["Simulation", "Analysis"])
 with simulation_tab:

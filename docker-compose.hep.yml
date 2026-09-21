@@ -12,9 +12,16 @@ services:
       - findingz-catalog:/course-config
       - findingz-data:/data
       - findingz-notebooks:/workspace/notebooks
+      - type: bind
+        source: ${FINDINGZ_COURSE_ROOT:-../course-materials}
+        target: /workspace/course-materials
+        bind:
+          create_host_path: false
     environment:
       MPLCONFIGDIR: /tmp/matplotlib
-      FINDINGZ_CATALOG_PATH: /course-config/course_catalog.yaml
+      FINDINGZ_CATALOG_PATH: /workspace/course-materials/config/course_catalog.yaml
+      FINDINGZ_VARIABLES_PATH: /workspace/course-materials/config/analysis_variables.yaml
+      FINDINGZ_NOTEBOOK_TEMPLATE: /workspace/course-materials/notebooks/templates/analysis_template.ipynb
       FINDINGZ_RUN_ROOT: /workspace/runs
       FINDINGZ_NOTEBOOK_DIR: /workspace/notebooks
       FINDINGZ_NOTEBOOK_URL_PREFIX: http://localhost:8889/lab/tree/notebooks/
@@ -31,9 +38,17 @@ services:
       - findingz-catalog:/course-config
       - findingz-data:/data
       - findingz-notebooks:/workspace/notebooks
+      - type: bind
+        source: ${FINDINGZ_COURSE_ROOT:-../course-materials}
+        target: /workspace/course-materials
+        bind:
+          create_host_path: false
     environment:
       MPLCONFIGDIR: /tmp/matplotlib
-      FINDINGZ_CATALOG_PATH: /course-config/course_catalog.yaml
+      FINDINGZ_CATALOG_PATH: /workspace/course-materials/config/course_catalog.yaml
+      FINDINGZ_VARIABLES_PATH: /workspace/course-materials/config/analysis_variables.yaml
+      FINDINGZ_NOTEBOOK_TEMPLATE: /workspace/course-materials/notebooks/templates/analysis_template.ipynb
+      FINDINGZ_NOTEBOOK_DIR: /workspace/notebooks
       FINDINGZ_RUN_ROOT: /workspace/runs
     init: true
     healthcheck:
