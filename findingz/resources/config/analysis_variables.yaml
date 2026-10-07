@@ -1,9 +1,4 @@
 schema_version: 1
-
-# Re-read on every page interaction: no image rebuild is needed.
-# Columns must exist in the loaded analysis tables. No Python expressions.
-# Leading/subleading lepton columns are derived from the saved pair on load.
-# Slider ranges cover the selected samples; initially the whole range is selected.
 variables:
   mll:
     column: mll
@@ -13,7 +8,8 @@ variables:
   leading_lepton_pt:
     column: leading_lepton_pt
     label: Leading lepton pT [GeV]
-    description: Higher-pT lepton of the selected pair. Equal pT keeps the stored order.
+    description: Higher-pT lepton of the selected pair. Equal pT keeps the stored
+      order.
     step: 1.0
   subleading_lepton_pt:
     column: subleading_lepton_pt
@@ -30,15 +26,229 @@ variables:
     label: Subleading lepton eta
     description: Signed pseudorapidity of the lower-pT lepton in the selected pair.
     step: 0.1
-
-# Used for prepared datasets and old/custom runs without a matching process ID.
-default_variables: &dilepton [mll, leading_lepton_pt, subleading_lepton_pt, leading_lepton_eta, subleading_lepton_eta]
+  n_electron:
+    column: n_electron
+    label: Number of electrons
+    description: Number of stored electrons.
+    step: 1.0
+  leading_electron_pt:
+    column: leading_electron_pt
+    label: Leading electron pt [GeV]
+    description: pt of the leading electron ranked by transverse momentum; undefined
+      when absent.
+    step: 1.0
+  leading_electron_eta:
+    column: leading_electron_eta
+    label: Leading electron eta
+    description: eta of the leading electron ranked by transverse momentum; undefined
+      when absent.
+    step: 0.1
+  subleading_electron_pt:
+    column: subleading_electron_pt
+    label: Subleading electron pt [GeV]
+    description: pt of the subleading electron ranked by transverse momentum; undefined
+      when absent.
+    step: 1.0
+  subleading_electron_eta:
+    column: subleading_electron_eta
+    label: Subleading electron eta
+    description: eta of the subleading electron ranked by transverse momentum; undefined
+      when absent.
+    step: 0.1
+  m_electron_pair:
+    column: m_electron_pair
+    label: Leading electron pair mass [GeV]
+    description: Invariant mass of the two highest-pT electrons, without a charge
+      requirement; undefined with fewer than two.
+    step: 1.0
+  n_muon:
+    column: n_muon
+    label: Number of muons
+    description: Number of stored muons.
+    step: 1.0
+  leading_muon_pt:
+    column: leading_muon_pt
+    label: Leading muon pt [GeV]
+    description: pt of the leading muon ranked by transverse momentum; undefined when
+      absent.
+    step: 1.0
+  leading_muon_eta:
+    column: leading_muon_eta
+    label: Leading muon eta
+    description: eta of the leading muon ranked by transverse momentum; undefined
+      when absent.
+    step: 0.1
+  subleading_muon_pt:
+    column: subleading_muon_pt
+    label: Subleading muon pt [GeV]
+    description: pt of the subleading muon ranked by transverse momentum; undefined
+      when absent.
+    step: 1.0
+  subleading_muon_eta:
+    column: subleading_muon_eta
+    label: Subleading muon eta
+    description: eta of the subleading muon ranked by transverse momentum; undefined
+      when absent.
+    step: 0.1
+  m_muon_pair:
+    column: m_muon_pair
+    label: Leading muon pair mass [GeV]
+    description: Invariant mass of the two highest-pT muons, without a charge requirement;
+      undefined with fewer than two.
+    step: 1.0
+  n_photon:
+    column: n_photon
+    label: Number of photons
+    description: Number of stored photons.
+    step: 1.0
+  leading_photon_pt:
+    column: leading_photon_pt
+    label: Leading photon pt [GeV]
+    description: pt of the leading photon ranked by transverse momentum; undefined
+      when absent.
+    step: 1.0
+  leading_photon_eta:
+    column: leading_photon_eta
+    label: Leading photon eta
+    description: eta of the leading photon ranked by transverse momentum; undefined
+      when absent.
+    step: 0.1
+  subleading_photon_pt:
+    column: subleading_photon_pt
+    label: Subleading photon pt [GeV]
+    description: pt of the subleading photon ranked by transverse momentum; undefined
+      when absent.
+    step: 1.0
+  subleading_photon_eta:
+    column: subleading_photon_eta
+    label: Subleading photon eta
+    description: eta of the subleading photon ranked by transverse momentum; undefined
+      when absent.
+    step: 0.1
+  m_photon_pair:
+    column: m_photon_pair
+    label: Leading photon pair mass [GeV]
+    description: Invariant mass of the two highest-pT photons, without a charge requirement;
+      undefined with fewer than two.
+    step: 1.0
+  n_jet:
+    column: n_jet
+    label: Number of jets
+    description: Number of stored jets.
+    step: 1.0
+  leading_jet_pt:
+    column: leading_jet_pt
+    label: Leading jet pt [GeV]
+    description: pt of the leading jet ranked by transverse momentum; undefined when
+      absent.
+    step: 1.0
+  leading_jet_eta:
+    column: leading_jet_eta
+    label: Leading jet eta
+    description: eta of the leading jet ranked by transverse momentum; undefined when
+      absent.
+    step: 0.1
+  subleading_jet_pt:
+    column: subleading_jet_pt
+    label: Subleading jet pt [GeV]
+    description: pt of the subleading jet ranked by transverse momentum; undefined
+      when absent.
+    step: 1.0
+  subleading_jet_eta:
+    column: subleading_jet_eta
+    label: Subleading jet eta
+    description: eta of the subleading jet ranked by transverse momentum; undefined
+      when absent.
+    step: 0.1
+  m_jet_pair:
+    column: m_jet_pair
+    label: Leading jet pair mass [GeV]
+    description: Invariant mass of the two highest-pT jets, without a charge requirement;
+      undefined with fewer than two.
+    step: 1.0
+  n_parton:
+    column: n_parton
+    label: Number of partons
+    description: Number of stored partons.
+    step: 1.0
+  leading_parton_pt:
+    column: leading_parton_pt
+    label: Leading parton pt [GeV]
+    description: pt of the leading parton ranked by transverse momentum; undefined
+      when absent.
+    step: 1.0
+  leading_parton_eta:
+    column: leading_parton_eta
+    label: Leading parton eta
+    description: eta of the leading parton ranked by transverse momentum; undefined
+      when absent.
+    step: 0.1
+  subleading_parton_pt:
+    column: subleading_parton_pt
+    label: Subleading parton pt [GeV]
+    description: pt of the subleading parton ranked by transverse momentum; undefined
+      when absent.
+    step: 1.0
+  subleading_parton_eta:
+    column: subleading_parton_eta
+    label: Subleading parton eta
+    description: eta of the subleading parton ranked by transverse momentum; undefined
+      when absent.
+    step: 0.1
+  m_parton_pair:
+    column: m_parton_pair
+    label: Leading parton pair mass [GeV]
+    description: Invariant mass of the two highest-pT partons, without a charge requirement;
+      undefined with fewer than two.
+    step: 1.0
+  met:
+    column: met
+    label: Missing transverse momentum [GeV]
+    description: Delphes reconstructed missing transverse momentum magnitude.
+    step: 1.0
+default_variables: &id001
+- mll
+- leading_lepton_pt
+- subleading_lepton_pt
+- leading_lepton_eta
+- subleading_lepton_eta
+- n_electron
+- leading_electron_pt
+- leading_electron_eta
+- subleading_electron_pt
+- subleading_electron_eta
+- m_electron_pair
+- n_muon
+- leading_muon_pt
+- leading_muon_eta
+- subleading_muon_pt
+- subleading_muon_eta
+- m_muon_pair
+- n_photon
+- leading_photon_pt
+- leading_photon_eta
+- subleading_photon_pt
+- subleading_photon_eta
+- m_photon_pair
+- n_jet
+- leading_jet_pt
+- leading_jet_eta
+- subleading_jet_pt
+- subleading_jet_eta
+- m_jet_pair
+- n_parton
+- leading_parton_pt
+- leading_parton_eta
+- subleading_parton_pt
+- subleading_parton_eta
+- m_parton_pair
+- met
 processes:
-  dy_ll: *dilepton
-  dy_ee: *dilepton
-  dy_mumu: *dilepton
-  dy_ee_photon: *dilepton
-  dy_mumu_photon: *dilepton
-  ee_mumu: *dilepton
-  ee_zh_mumu: *dilepton
-  ee_ww_mumu: *dilepton
+  dy_ll: *id001
+  dy_ee: *id001
+  dy_mumu: *id001
+  dy_ee_photon: *id001
+  dy_mumu_photon: *id001
+  ee_mumu: *id001
+  ee_zh_mumu: *id001
+  ee_ww_mumu: *id001

@@ -1,12 +1,13 @@
 """Small notebook helpers; return ordinary pandas tables and matplotlib figures."""
 import json
+import warnings
 from pathlib import Path
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 from .catalog import load_catalog
 from .delphes import default_run_root
-from .hypotheses import build_sample_library, validate_counting_samples
+from .hypotheses import build_sample_library, validate_counting_samples, compatibility_warnings
 from .analysis_variables import AnalysisVariable, load_variable_catalog, apply_windows
 from .counting import summarize_cut_and_count, compare_hypotheses
 
@@ -89,6 +90,7 @@ def plot_samples(frames, library, observable="mll", *, shape_only=True, variable
     ax = fig.subplots()
     rows = []
     for key, frame in frames.items():
+        frame = frame.loc[np.isfinite(pd.to_numeric(frame[variable.column], errors="coerce"))]
         weights = pd.to_numeric(frame.get("weight",pd.Series(1.,index=frame.index)))
         integral = float(weights.sum())
         rows.append({"sample":library[key].label,"selected rows":len(frame),
@@ -117,6 +119,9 @@ def compare_samples(library, null, alternative, *, cuts=None, channels=None,
     if missing:
         raise ValueError(f"Unavailable samples: {sorted(missing)}")
     validate_counting_samples([library[key] for key in ids])
+    messages = compatibility_warnings([library[key] for key in ids])
+    if messages:
+        warnings.warn(" ".join(messages), UserWarning, stacklevel=2)
     frames = select_samples(library, ids, cuts=cuts, channels=channels,
                             luminosity_fb=luminosity_fb, variables=variables)
     return compare_hypotheses(frames[null], frames[alternative],
@@ -142,6 +147,9 @@ def count_samples(library, signal, backgrounds, *, cuts=None, channels=None,
     if missing:
         raise ValueError(f"Unavailable samples: {sorted(missing)}")
     validate_counting_samples([library[key] for key in ids])
+    messages = compatibility_warnings([library[key] for key in ids])
+    if messages:
+        warnings.warn(" ".join(messages), UserWarning, stacklevel=2)
     frames = select_samples(library,ids,cuts=cuts,channels=channels,
                             luminosity_fb=luminosity_fb,variables=variables)
     return summarize_cut_and_count(frames[signal],

@@ -10,6 +10,7 @@ from findingz.hypotheses import (
     AnalysisSample,
     build_sample_library,
     compatible_counting_backgrounds,
+    compatibility_warnings,
     select_events,
     validate_analysis_context,
     validate_counting_samples,
@@ -115,6 +116,64 @@ def test_counting_requires_consistent_generated_context(tmp_path) -> None:
         validate_counting_samples([signal, incompatible])
 
 
+def test_run_card_edits_affect_sample_compatibility(tmp_path):
+    first = _sample(tmp_path, "first")
+    second = _sample(tmp_path, "second")
+    second.config["run_card_overrides"] = {}
+    validate_counting_samples([first, second])
+    second.config["run_card_overrides"] = {"ptl": 25.}
+    validate_counting_samples([first, second])
+    assert any("ptl" in message for message in compatibility_warnings([first, second]))
+    assert "ptl=25.0" in second.analysis_context_label
+    first.config["run_card_overrides"] = {"ptl": 25.}
+    # Parameter changes define the hypotheses being compared, not a new collider context.
+    first.config["param_card_overrides"] = {"mass 23": 93.}
+    validate_counting_samples([first, second])
+
+
+def test_effective_cards_flag_pdf_scale_and_cuts_without_blocking(tmp_path):
+    from dataclasses import replace
+    first = _sample(tmp_path, "first")
+    second = _sample(tmp_path, "second")
+    first = replace(first, path=tmp_path / "one/analysis.csv")
+    second = replace(second, path=tmp_path / "two/analysis.csv")
+    for sample, pdf, pt, scale in [(first, 260000, 10, 1), (second, 260001, 30, 2)]:
+        cards = sample.path.parent / "cards/generated"
+        cards.mkdir(parents=True)
+        (cards / "run_card.dat").write_text(f"{pdf} = lhaid\n{pt} = ptl\n{scale} = scalefact\n")
+    validate_counting_samples([first, second])
+    messages = " ".join(compatibility_warnings([first, second]))
+    assert all(key in messages for key in ["lhaid", "ptl", "scalefact", "coverage"])
+    assert "missing" not in messages
+    assert compatible_counting_backgrounds(first, {"second": second}) == ["second"]
+
+
+def test_statistics_and_formatting_do_not_warn_and_detector_edits_are_nonblocking(tmp_path):
+    from dataclasses import replace
+    first = replace(_sample(tmp_path, "first"), path=tmp_path / "one/analysis.csv")
+    second = replace(_sample(tmp_path, "second"), path=tmp_path / "two/analysis.csv")
+    for sample, count, seed, pt in [(first, 100, 123, "10"), (second, 500, 456, "1.0d1")]:
+        cards = sample.path.parent / "cards/generated"
+        cards.mkdir(parents=True)
+        (cards / "run_card.dat").write_text(f"{count} = nevents\n{seed} = iseed\n{pt} = ptl ! cut\n")
+    assert compatibility_warnings([first, second]) == []
+    first.config["collider"] = second.config["collider"] = "pp"
+    second.config["collider_id"] = "different-label-for-same-beams"
+    second.config["detector_id"] = "other"
+    second.config["shower_card_text"] = "PartonLevel:ISR = off"
+    validate_counting_samples([first, second])
+    messages = " ".join(compatibility_warnings([first, second]))
+    assert "Detector presets" in messages and "Shower cards" in messages
+
+
+def test_invalid_normalization_remains_a_hard_error(tmp_path):
+    from dataclasses import replace
+    first = _sample(tmp_path, "first")
+    for value in [None, float("nan"), -1]:
+        with pytest.raises(ValueError, match="normalization"):
+            validate_counting_samples([replace(first, cross_section_pb=value)])
+
+
 def test_background_menu_uses_execution_compatibility_checks(tmp_path):
     signal = _sample(tmp_path, "signal")
     good = _sample(tmp_path, "background")
@@ -125,7 +184,7 @@ def test_background_menu_uses_execution_compatibility_checks(tmp_path):
     full.config.update(run_mode="full", detector_id="cms")
     legacy = _sample(tmp_path, "legacy", kind="prepared")
     library = {s.sample_id: s for s in [signal, good, wrong_energy, wrong_window, full, legacy]}
-    assert compatible_counting_backgrounds(signal, library) == [good.sample_id]
+    assert compatible_counting_backgrounds(signal, library) == [good.sample_id, wrong_window.sample_id]
 
 
 def test_counting_explains_actual_simulation_and_detector_mismatch(tmp_path):
@@ -137,19 +196,20 @@ def test_counting_explains_actual_simulation_and_detector_mismatch(tmp_path):
     message = str(raised.value)
     assert "simulation level (full-run: MadGraph + Pythia + Delphes" in message
     assert "parton-run: MadGraph only (parton level)" in message
-    assert "detector (full-run: cms; parton-run: no detector)" in message
+    assert any("Detector presets" in message for message in compatibility_warnings([full, parton]))
 
 
 def test_counting_requires_consistent_generated_phase_space(tmp_path) -> None:
     signal = _sample(tmp_path, "signal")
     incompatible = _sample(tmp_path, "background", mass_window=(80.0, 100.0))
-    with pytest.raises(ValueError, match="generated mass range"):
-        validate_counting_samples([signal, incompatible])
+    validate_counting_samples([signal, incompatible])
+    assert any("mmll" in message for message in compatibility_warnings([signal, incompatible]))
 
 
 def test_analysis_context_describes_generated_configuration(tmp_path) -> None:
     sample = _sample(tmp_path, "signal")
-    assert sample.analysis_context == sample.generated_context
+    assert sample.analysis_context[:3] == sample.generated_context[:3]
+    assert sample.analysis_context[3] == sample.config["beam_energy_gev"]
     assert "√s = 13000 GeV" in sample.analysis_context_label
 
 

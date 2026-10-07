@@ -133,6 +133,10 @@ def add_observables(frame: pd.DataFrame) -> pd.DataFrame:
     output = frame.copy()
     derived: list[tuple[float, float, float, float, float, float]] = []
     for _, row in output.iterrows():
+        if not all(pd.notna(row.get(f"l{i}_{field}")) for i in (1, 2)
+                   for field in ("pt", "eta", "phi", "mass", "charge")):
+            derived.append((float("nan"),) * 6)
+            continue
         vectors = event_vectors(row)
         total = sum_vectors(vectors)
         charges = [int(row[f"l{i}_charge"]) for i in range(1, 3)]

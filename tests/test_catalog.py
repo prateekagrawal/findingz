@@ -51,6 +51,14 @@ def test_default_catalog_exposes_only_released_entries() -> None:
     assert "ee_zh_mumu" not in catalog.available_processes("lep91", "sm")
     assert "ee_zh_mumu" in catalog.available_processes("higgs240", "sm")
     assert "ee_mumu" in catalog.available_processes("lep91", "sm", full_pipeline=True)
+    assert "markii29" in catalog.available_colliders()
+    assert "markii29" not in catalog.available_colliders(full_pipeline=True)
+    assert catalog.colliders["markii29"].beam_energy_gev == 14.5
+    photon_only = catalog.available_processes("markii29", "qed_dilepton")
+    assert set(photon_only) == {"ee_mumu_qed"}
+    assert photon_only["ee_mumu_qed"].madgraph_lines == [
+        "generate e- e+ > mu- mu+ / z h"
+    ]
     assert "ee_zh_mumu" in catalog.available_processes(
         "higgs240", "sm", full_pipeline=True
     )

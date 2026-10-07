@@ -30,6 +30,8 @@ def counting_app(tmp_path, monkeypatch, request):
         library["missing-rate"] = replace(
             library["signal"], sample_id="missing-rate", label="missing-rate", cross_section_pb=None,
         )
+    if getattr(request, "param", None) == "settings":
+        library["background"].config["run_card_overrides"] = {"ptl": 30., "lhaid": 260001, "scalefact": 2.}
     monkeypatch.setattr("findingz.hypotheses.build_sample_library", lambda *_: library)
     monkeypatch.setattr("findingz.notebook_analysis.build_sample_library", lambda *_: library)
     monkeypatch.setenv("FINDINGZ_RUN_ROOT", str(tmp_path))
@@ -191,6 +193,18 @@ def test_counting_roles_can_use_unplotted_sample(counting_app):
     assert not app.exception
     assert not app.error
     assert app.dataframe[-1].value["sample"].tolist() == ["other", "background"]
+
+
+@pytest.mark.parametrize("counting_app", ["settings"], indirect=True)
+def test_different_generator_settings_warn_but_remain_countable(counting_app):
+    app = counting_app
+    assert "background" in app.selectbox(key="count_alternative").options
+    app.selectbox(key="count_alternative").set_value("background").run()
+    assert any("Generation settings differ" in warning.value for warning in app.warning)
+    assert not _button(app, "Run cut-and-count").disabled
+    _button(app, "Run cut-and-count").click().run()
+    assert not app.exception and not app.error
+    assert any(metric.label == "Alternative prediction" for metric in app.metric)
 
 
 def test_unsupported_copy_leaves_counting_cuts_unchanged(counting_app, tmp_path):

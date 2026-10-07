@@ -37,7 +37,15 @@ def test_madevent_card_is_bounded_and_reproducible() -> None:
     assert "set nevents 500" in card
     assert "set iseed 37" in card
     assert "set ebeam1 6800" in card
+    assert "set mmll" not in card
+
+
+def test_legacy_mass_window_is_preserved_without_reusing_its_sample():
+    legacy = HepSimulationConfig(min_mass_gev=50., max_mass_gev=130.)
+    card = render_madevent_commands(legacy, "run_01")
+    assert "set mmll 50" in card
     assert "set mmllmax 130" in card
+    assert _pipeline_hash(legacy, "test") != _pipeline_hash(HepSimulationConfig(), "test")
 
 
 def test_standard_delphes_card_omits_heavy_low_level_collections() -> None:

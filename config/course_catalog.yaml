@@ -72,6 +72,13 @@ detectors:
     enabled: true
 
 colliders:
+  markii29:
+    label: "MARK II-like 29 GeV e+e- run"
+    beam_type: ee
+    beam_energy_gev: 14.5
+    full_pipeline: false
+    mass_window_gev: [20.0, 35.0]
+    enabled: true
   lhc13:
     label: "LHC Run 2"
     beam_type: pp
@@ -101,6 +108,15 @@ colliders:
     enabled: true
 
 processes:
+  ee_mumu_qed:
+    label: "e+ e- → μ+ μ-"
+    collider_ids: [markii29]
+    model_ids: [qed_dilepton]
+    madgraph_lines:
+      # Beam 1 is e- (+z), matching the exercise's definition of theta.
+      - generate e- e+ > mu- mu+ / z h
+    full_pipeline: false
+    enabled: true
   dy_ll:
     label: "p p → e+ e- or μ+ μ- (combined)"
     collider_ids: [lhc13]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .beams import BeamType, BEAM_PDFS, com_energy
+
 import os
 from datetime import date, datetime
 from pathlib import Path
@@ -9,6 +11,9 @@ import yaml
 from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from packaging.version import Version
 from . import __version__
+from .run_card import RunCardOptions
+from .param_card import ParamCardOptions
+from .text_cards import TextCardOptions
 
 
 class Availability(BaseModel):
@@ -45,6 +50,7 @@ class ModelEntry(Availability):
     label: str = Field(min_length=1, max_length=100)
     madgraph_name: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_+-]+$")
     ufo_path: str | None = Field(default=None, min_length=1)
+    param_card: ParamCardOptions | None = None
 
     @model_validator(mode="after")
     def one_source(self):
@@ -65,16 +71,18 @@ class DetectorEntry(Availability):
 
 class ColliderEntry(Availability):
     label: str = Field(min_length=1, max_length=100)
-    beam_type: Literal["pp", "ee"]
+    beam_type: BeamType
     beam_energy_gev: float = Field(ge=10.0, le=50_000.0)
+    beam2_energy_gev: float | None = Field(default=None, ge=10.0, le=50_000.0)
     full_pipeline: bool = False
     detector_ids: list[str] = Field(default_factory=list)
     default_detector_id: str | None = None
-    mass_window_gev: tuple[float, float]
+    # Legacy catalogue field: accepted for older course checkouts, no longer used by the UI.
+    mass_window_gev: tuple[float, float] | None = None
 
     @model_validator(mode="after")
     def validate_mass_window(self) -> ColliderEntry:
-        if self.mass_window_gev[0] >= self.mass_window_gev[1]:
+        if self.mass_window_gev is not None and self.mass_window_gev[0] >= self.mass_window_gev[1]:
             raise ValueError("collider mass_window_gev must be ordered")
         if self.default_detector_id is not None and self.default_detector_id not in self.detector_ids:
             raise ValueError("default_detector_id must be listed in detector_ids")
@@ -90,6 +98,11 @@ class ProcessEntry(Availability):
     madgraph_lines: list[str] = Field(min_length=1, max_length=8)
     minimum_com_energy_gev: float | None = Field(default=None, ge=0.0)
     full_pipeline: bool = False
+    # When supplied, replaces the course-wide run-card policy for this process.
+    run_card: RunCardOptions | None = None
+    param_card: ParamCardOptions | None = None
+    shower_card: TextCardOptions | None = None
+    detector_card: TextCardOptions | None = None
 
     @model_validator(mode="after")
     def validate_commands(self) -> ProcessEntry:
@@ -113,9 +126,13 @@ class CourseCatalog(BaseModel):
     _source: Path | None = PrivateAttr(default=None)
     minimum_findingz_version: str | None = None
     dataset_folders: dict[str, DatasetFolder] = Field(default_factory=dict)
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     title: str = "Finding Z course catalogue"
     features: CourseFeatures = Field(default_factory=CourseFeatures)
+    run_card: RunCardOptions = Field(default_factory=RunCardOptions)
+    param_card: ParamCardOptions = Field(default_factory=ParamCardOptions)
+    shower_card: TextCardOptions = Field(default_factory=TextCardOptions)
+    detector_card: TextCardOptions = Field(default_factory=TextCardOptions)
     datasets: dict[str, DatasetEntry]
     models: dict[str, ModelEntry]
     detectors: dict[str, DetectorEntry]
@@ -124,6 +141,17 @@ class CourseCatalog(BaseModel):
 
     @model_validator(mode="after")
     def validate_references(self) -> CourseCatalog:
+        policies = [self.run_card, self.param_card]
+        policies.extend(model.param_card for model in self.models.values())
+        policies.extend(policy for process in self.processes.values()
+                        for policy in (process.run_card, process.param_card))
+        text_policies = [self.shower_card, self.detector_card]
+        text_policies.extend(policy for process in self.processes.values()
+                             for policy in (process.shower_card, process.detector_card))
+        customized = any(policy is not None and (policy.defaults or policy.editable) for policy in policies)
+        customized |= any(policy is not None and (policy.path or policy.editable) for policy in text_policies)
+        if self.schema_version == 1 and customized:
+            raise ValueError("Card customization requires catalogue schema_version: 2")
         if self.minimum_findingz_version and Version(__version__) < Version(self.minimum_findingz_version):
             raise ValueError(f"This catalogue requires FindingZ >= {self.minimum_findingz_version}; installed: {__version__}. Ask CIT to update FindingZ.")
         for collider_id, collider in self.colliders.items():
@@ -174,7 +202,7 @@ class CourseCatalog(BaseModel):
         on_date: date | None = None,
     ) -> dict[str, ProcessEntry]:
         collider = self.colliders[collider_id]
-        center_of_mass_energy = 2.0 * collider.beam_energy_gev
+        center_of_mass_energy = com_energy(collider.beam_energy_gev, collider.beam2_energy_gev)
         return {
             key: value
             for key, value in self.processes.items()

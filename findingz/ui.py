@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from findingz.beams import com_energy
+
 import json
 import logging
 import os
@@ -34,14 +36,20 @@ from findingz.hep_pipeline import (
     hep_run_directory,
     probe_hep_toolchain,
     run_hep_simulation,
+    render_delphes_card,
+    resolve_detector_card,
 )
 from findingz.hypotheses import (
     AnalysisSample,
     build_sample_library,
     compatible_counting_backgrounds,
+    compatibility_warnings,
     validate_counting_samples,
 )
 from findingz.run_choices import fresh_config, matching_run, rename_saved_run
+from findingz.run_card import RunCardOptions, format_value, parse_edits
+from findingz.param_card import ParamCardOptions, parse_edits as parse_param_edits
+from findingz.text_cards import TextCardOptions, shower_template, validate_card_text, validate_shower_card
 from findingz.run_progress import render_progress_details
 from findingz.runs import list_saved_runs
 from findingz.notebook_export import notebook_directory, notebook_url, save_notebook, template_path
@@ -52,6 +60,275 @@ from findingz.simulation import (
 )
 
 logger = logging.getLogger("findingz.app")
+
+
+@st.cache_data(show_spinner=False, ttl=60)
+def _installed_pdf_choices(executable):
+    from findingz.card_controls import pdf_choices
+    return pdf_choices(executable)
+
+
+@st.cache_data(show_spinner=False)
+def _process_card_defaults(executable, model, model_path, process_lines, model_digest, image_id):
+    from findingz.card_defaults import prepare_defaults
+    return prepare_defaults(executable, model, model_path, process_lines)
+
+
+def _restore_defaults_button(key, disabled=False):
+    st.html("""<style>
+    div[class*="st-key-card_restore_"] button {
+        min-height: 1.7rem; padding: 0.1rem 0.45rem;
+    }
+    div[class*="st-key-card_restore_"] button p { font-size: 0.75rem; }
+    </style>""")
+    with st.container(key=f"card_restore_{key}", width="content"):
+        return st.button("Restore defaults", key=key, type="secondary",
+                         width="content", disabled=disabled)
+
+
+def _render_scalar_card_editor(options, key, title, parser, default_loader=None, choice_loader=None):
+    if not options.defaults and not options.editable:
+        return {}
+    if not options.editable:
+        st.markdown(f"**{title}**")
+        st.caption("Course defaults: " + ", ".join(f"{name} = {value}" for name, value in options.defaults.items()))
+        return dict(options.defaults)
+    revision = sha256(options.model_dump_json().encode()).hexdigest()[:10]
+    prefix = f"{key}_{revision}"
+    generation_key = prefix + "_generation"
+    with st.container(horizontal=True, vertical_alignment="center", gap="small"):
+        st.markdown(f"**{title}**", width="content")
+        if _restore_defaults_button(prefix + "_reset"):
+            st.session_state[generation_key] = st.session_state.get(generation_key, 0) + 1
+    if options.defaults:
+        st.caption("Course defaults: " + ", ".join(f"{name} = {value}" for name, value in options.defaults.items()))
+    prefix += f"_{st.session_state.get(generation_key, 0)}"
+    native = {}
+    try:
+        if default_loader is None:
+            raise RuntimeError("Default cards are unavailable for this process")
+        with st.spinner("Reading this process’s default cards (no events generated)…"):
+            native = default_loader()
+    except (OSError, ValueError, RuntimeError, TimeoutError) as error:
+        st.warning(f"Parameter editing unavailable: {error}")
+    available = set()
+    for name in options.editable:
+        if name in native:
+            try:
+                parser(f"{native[name]} = {name}", options)
+                available.add(name)
+            except ValueError:
+                pass
+    selection_key = prefix + "_selected"
+    selected = [name for name in options.editable
+                if name in st.session_state.get(selection_key, []) and name in available]
+    from findingz.card_controls import inactive_reason
+    choices = choice_loader() if choice_loader else {}
+    effective = dict(native)
+    effective.update(options.defaults)
+    for entry, raw in list(effective.items()):
+        if str(raw).lower() in {"true", ".true.", "false", ".false."}:
+            effective[entry] = str(raw).lower() in {"true", ".true."}
+    for entry in selected:
+        default = options.defaults.get(entry, native.get(entry))
+        effective[entry] = st.session_state.get(f"{prefix}_{entry}_{default}", effective.get(entry))
+    reasons = {}
+    if isinstance(options, RunCardOptions):
+        reasons = {name: inactive_reason(name, effective) for name in options.editable}
+        if not choices.get("lhaid"):
+            reasons["lhaid"] = "No installed LHAPDF sets found."
+    removed = [name for name in selected if reasons.get(name)]
+    for name in removed:
+        default = options.defaults.get(name, native.get(name))
+        st.session_state.pop(f"{prefix}_{name}_{default}", None)
+    selected = [name for name in selected if not reasons.get(name)]
+    st.session_state[selection_key] = selected
+
+    def toggle_parameter(name):
+        current = list(st.session_state.get(selection_key, []))
+        if name in current:
+            current.remove(name)
+        else:
+            current.append(name)
+        st.session_state[selection_key] = current
+
+    with st.container(horizontal=True):
+        for name in options.editable:
+            st.button(name, key=f"{prefix}_choose_{name}",
+                      type="primary" if name in selected else "secondary",
+                      disabled=name not in available or bool(reasons.get(name)),
+                      help="Unavailable or fixed in this model/process card." if name not in available
+                           else reasons.get(name) or "Click to select or restore the default.",
+                      on_click=toggle_parameter, args=(name,))
+    if not selected:
+        return dict(options.defaults)
+    result = dict(options.defaults)
+    st.html("""<style>
+    div[class*="st-key-card_table_"],
+    div[class*="st-key-card_table_"] [data-testid="stVerticalBlock"] { gap: 0.25rem; }
+    div[class*="st-key-card_table_"] [data-testid="stMarkdownContainer"],
+    div[class*="st-key-card_table_"] [data-testid="stCaptionContainer"],
+    div[class*="st-key-card_table_"] p {
+        margin: 0 !important; line-height: 1.3;
+    }
+    div[class*="st-key-card_table_"] [data-testid="stTextInput"] input,
+    div[class*="st-key-card_table_"] [data-testid="stNumberInput"] input {
+        min-height: 1.9rem; height: 1.9rem; padding: 0.15rem 0.5rem;
+    }
+    div[class*="st-key-card_table_"] [data-baseweb="input"] { min-height: 1.9rem; }
+    div[class*="st-key-card_table_"] [data-testid="stNumberInput"] button { display: none; }
+    div[class*="st-key-card_table_"] [data-testid="stHorizontalBlock"] {
+        display: grid; grid-template-columns: 145px 135px 95px minmax(0, 1fr);
+        align-items: center; gap: 8px; padding: 4px 0;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+    }
+    div[class*="st-key-card_table_"] [data-testid="stColumn"] {
+        width: 100% !important; min-width: 0 !important;
+        display: flex; flex-direction: column; justify-content: center;
+    }
+    div[class*="st-key-card_table_"] [data-baseweb="input"],
+    div[class*="st-key-card_table_"] [data-baseweb="select"] > div {
+        min-height: 32px; height: 32px;
+    }
+    @media (max-width: 700px) {
+        div[class*="st-key-card_table_"] [data-testid="stHorizontalBlock"] {
+            grid-template-columns: 1.2fr 1.1fr 0.8fr 2fr;
+        }
+    }
+    </style>""")
+    with st.container(key=f"card_table_{prefix}"):
+        headers = st.columns([1.15, 1.05, 0.85, 6.95], gap="small")
+        for column, label in zip(headers, ["Parameter", "Value", "Default", "Description"]):
+            column.caption(label)
+        valid = True
+        for name in selected:
+            default = options.defaults.get(name, native.get(name))
+            if default is None:
+                st.error(f"{name}: no editable default exists in this process’s card.")
+                valid = False
+                continue
+            name_col, value_col, default_col, description_col = st.columns([1.15, 1.05, 0.85, 6.95], vertical_alignment="center", gap="small")
+            name_col.markdown(f"`{name}`")
+            baseline = parser(f"{default} = {name}", options)[name]
+            widget_key = f"{prefix}_{name}_{default}"
+            reason = inactive_reason(name, effective) if isinstance(options, RunCardOptions) else None
+            menu = options.choices.get(name)
+            if name in {"pdlabel", "lhaid"} and isinstance(options, RunCardOptions):
+                installed = dict(choices.get(name, {}))
+                if menu is not None:
+                    installed = {v: label for v, label in menu.items() if v in installed}
+                menu = installed
+                if name != "lhaid" and str(baseline) not in menu:
+                    menu = {str(baseline): f"{baseline} (default)", **menu}
+                if name == "lhaid" and not choices.get(name):
+                    reason = "No installed LHAPDF sets found."
+            if menu is not None:
+                values = list(menu)
+                if name != "lhaid" and str(baseline) not in menu:
+                    values.insert(0, str(baseline))
+                text = value_col.selectbox(f"New value for {name}", values,
+                    index=values.index(str(baseline)) if str(baseline) in values else None, format_func=lambda v, m=menu: m.get(v, f"{v} (default)"),
+                    key=widget_key, label_visibility="collapsed", disabled=bool(reason), help=reason)
+            elif isinstance(baseline, bool):
+                text = str(value_col.selectbox(f"New value for {name}", [False, True],
+                    index=int(baseline), format_func=lambda value: "True" if value else "False",
+                    key=widget_key, label_visibility="collapsed", disabled=bool(reason)))
+            elif isinstance(baseline, (int, float)):
+                text = str(value_col.number_input(f"New value for {name}", value=baseline,
+                    key=widget_key, label_visibility="collapsed", disabled=bool(reason),
+                    help=reason, format="%d" if isinstance(baseline, int) else "%g"))
+            else:
+                text = value_col.text_input(f"New value for {name}", value=str(default),
+                    key=widget_key, label_visibility="collapsed", help="Leave blank to use the default.")
+            default_col.caption(str(default))
+            from findingz.card_descriptions import parameter_description
+            description_col.caption(options.descriptions.get(name, parameter_description(name)) + (" " + reason if reason else ""))
+            try:
+                if text is None:
+                    if reason:
+                        text = str(default)
+                    else:
+                        raise ValueError("Choose an installed PDF set before running")
+                if any(char in text for char in "\n\r=#!"):
+                    raise ValueError("Enter a single value, without a parameter name or comment")
+                baseline = parser(f"{default} = {name}", options)[name]
+                value = parser(f"{text} = {name}", options)[name] if text.strip() else baseline
+                if value != baseline and not reason:
+                    result[name] = value
+
+            except ValueError as error:
+                st.error(f"{name}: {error}")
+                valid = False
+    if isinstance(options, RunCardOptions) and result.get("pdlabel", effective.get("pdlabel")) == "lhapdf":
+        pdf_id = str(result.get("lhaid", options.defaults.get("lhaid", native.get("lhaid"))))
+        if pdf_id not in choices.get("lhaid", {}):
+            st.error("Select lhaid and choose an installed PDF set before running with LHAPDF.")
+            valid = False
+    return result if valid else None
+
+
+def _render_run_card_editor(options: RunCardOptions, key: str, default_loader=None, choice_loader=None):
+    if not options.defaults and not options.editable:
+        return {}
+    with st.container(border=True):
+        return _render_scalar_card_editor(options, "run_card_" + key, "Run-card settings",
+                                          parse_edits, default_loader, choice_loader)
+
+
+def _render_param_card_editor(options: ParamCardOptions, key: str, default_loader=None):
+    if not options.defaults and not options.editable:
+        return {}
+    with st.container(border=True):
+        return _render_scalar_card_editor(options, "param_card_" + key, "Model parameters",
+                                          parse_param_edits, default_loader)
+
+
+def _render_text_card_editor(options: TextCardOptions, title: str, key: str, source, default_loader,
+                             validator=validate_card_text):
+    if not options.path and not options.editable:
+        return None, True
+    with st.container(border=True):
+        return _render_text_card_contents(options, title, key, source, default_loader, validator)
+
+
+def _render_text_card_contents(options, title, key, source, default_loader, validator):
+    """An unopened editor uses the existing pipeline defaults, preserving run identity."""
+    revision = sha256(options.model_dump_json().encode()).hexdigest()[:10]
+    edit_key = f"edit_{key}_{revision}"
+    generation_key = f"text_generation_{key}_{revision}"
+
+    def discard_draft():
+        if not st.session_state.get(edit_key, False):
+            st.session_state[generation_key] = st.session_state.get(generation_key, 0) + 1
+
+    with st.container(horizontal=True, vertical_alignment="center", gap="small"):
+        editing = options.editable and st.checkbox(
+            f"Edit {title}", key=edit_key, on_change=discard_draft, width="content")
+        if options.editable and _restore_defaults_button(f"restore_{key}_{revision}", disabled=not editing):
+            st.session_state[generation_key] = st.session_state.get(generation_key, 0) + 1
+    if options.editable:
+        st.caption("Edits apply to the next run while checked. Unchecking discards edits and uses "
+                   "the course/default card. Cards are saved with the run when you generate events.")
+    if not options.path and not editing:
+        return None, True
+    try:
+        original = (resolve_catalog_path(options.path, source).read_text()
+                    if options.path else default_loader())
+        validator(original)
+        if editing:
+            content_id = sha256(original.encode()).hexdigest()[:10]
+            text = st.text_area(title, value=original, height=300,
+                                key=f"text_{key}_{revision}_{content_id}_{st.session_state.get(generation_key, 0)}",
+                                help="The entire card is used. Keep required output settings and "
+                                     "file references valid for the installed simulation tools.")
+            validator(text)
+        else:
+            text = original
+            st.caption(f"{title}: using the course-supplied card")
+        return (text if options.path or text != original else None), True
+    except (OSError, ValueError, RuntimeError) as error:
+        st.error(f"{title}: {error}")
+        return None, False
 
 
 def _luminosity_input(key: str) -> float:
@@ -328,7 +605,7 @@ def _render_local_simulator() -> None:
                 format_func=lambda item: colliders[item].label,
             )
         collider_entry = colliders[collider_id]
-        center_of_mass_energy = 2.0 * collider_entry.beam_energy_gev
+        center_of_mass_energy = com_energy(collider_entry.beam_energy_gev, collider_entry.beam2_energy_gev)
         energy_label = (
             f"{center_of_mass_energy / 1_000:g} TeV"
             if center_of_mass_energy >= 1_000
@@ -338,6 +615,8 @@ def _render_local_simulator() -> None:
         detector_card = "none"
         detector_description = "Parton level; no detector simulation"
         output_detail = "standard"
+        shower_card_text = detector_card_text = None
+        extra_cards_valid = True
         if is_full:
             available_detectors = catalog.available_detectors()
             detector_id = collider_entry.default_detector_id or ""
@@ -391,59 +670,87 @@ def _render_local_simulator() -> None:
         )
         st.caption(readiness)
         with st.expander("Generation settings", expanded=False):
-            settings = st.columns(3)
+            beam2_energy = collider_entry.beam2_energy_gev
+            settings = st.columns(3 + int(beam2_energy is not None) + int(is_full))
             with settings[0]:
-                events = st.slider(
-                    "Generated events", 100, MAX_HEP_EVENTS, 1_000, 100, key="hep_events"
+                events = st.number_input(
+                    "Events", min_value=100, max_value=MAX_HEP_EVENTS,
+                    value=1_000, step=100, key="hep_events",
+                    help="Number of hard-scattering events to generate.",
                 )
             with settings[1]:
                 seed = st.number_input(
-                    "Random seed",
-                    min_value=1,
-                    max_value=900_000_000,
-                    value=225,
-                    key="hep_seed",
+                    "Seed", min_value=1, max_value=900_000_000,
+                    value=225, key="hep_seed",
+                    help="Random seed for reproducible generation.",
                 )
             with settings[2]:
-                override_energy = st.checkbox(
-                    "Override collider energy",
-                    value=False,
-                    key=f"override_energy_{collider_id}",
-                    help="Leave off to use the named collider preset.",
+                beam_energy = st.number_input(
+                    "Beam 1 [GeV]" if beam2_energy is not None else "Energy / beam [GeV]",
+                    min_value=10.0, max_value=50_000.0,
+                    value=collider_entry.beam_energy_gev,
+                    step=0.1 if collider_entry.beam_type == "ee" else 500.0,
+                    key=f"beam_energy_{collider_id}",
+                    help=f"Collider preset: {collider_entry.beam_energy_gev:g} GeV per beam"
+                         if beam2_energy is None else
+                         f"Beam 1 preset: {collider_entry.beam_energy_gev:g} GeV.",
                 )
-                beam_energy = collider_entry.beam_energy_gev
-                if override_energy:
-                    beam_energy = st.number_input(
-                        "Energy per beam [GeV] (override)",
-                        min_value=10.0,
-                        max_value=50_000.0,
-                        value=collider_entry.beam_energy_gev,
-                        step=0.1 if collider_entry.beam_type == "ee" else 500.0,
-                        key=f"beam_energy_{collider_id}",
+            if beam2_energy is not None:
+                with settings[3]:
+                    beam2_energy = st.number_input(
+                        "Beam 2 [GeV]", min_value=10.0, max_value=50_000.0,
+                        value=beam2_energy, key=f"beam2_energy_{collider_id}",
+                        help=f"Beam 2 preset: {collider_entry.beam2_energy_gev:g} GeV.",
                     )
             if is_full:
-                detail_label = st.selectbox(
-                    "Saved detector output detail",
-                    [
-                        "Compact reconstructed objects (recommended)",
-                        "Full Delphes object record (advanced, larger file)",
-                    ],
-                    help=(
-                        "Compact keeps reconstructed leptons, photons, jets and missing "
-                        "energy. Full also keeps generator particles, tracks, calorimeter "
-                        "towers and particle-flow collections."
-                    ),
+                with settings[-1]:
+                    detail_label = st.selectbox(
+                        "Detector output", ["Compact (recommended)", "Full"],
+                        help=(
+                            "Compact (default) saves reconstructed leptons, photons, jets "
+                            "and missing energy. Full also saves generator particles, "
+                            "tracks, calorimeter towers and particle-flow collections, "
+                            "producing a larger ROOT file."
+                        ),
+                    )
+                    output_detail = "advanced" if detail_label == "Full" else "standard"
+            def native_defaults():
+                model_path = (str(resolve_catalog_path(model_entry.ufo_path, catalog._source))
+                              if model_entry.ufo_path else None)
+                return _process_card_defaults(
+                    str(toolchain.mg5_executable), model_entry.madgraph_name or model_id,
+                    model_path, tuple(process_entry.madgraph_lines),
+                    ufo_digest(model_path) if model_path else None, toolchain.image_id,
                 )
-                output_detail = "advanced" if detail_label.startswith("Full") else "standard"
-            min_mass, max_mass = st.slider(
-                "Generated dilepton mass range [GeV]",
-                10.0,
-                1_000.0,
-                collider_entry.mass_window_gev,
-                5.0,
-                help="Both bounds are passed to the MadGraph run card.",
-                key=f"mass_window_{collider_id}",
+            run_card_overrides = _render_run_card_editor(
+                process_entry.run_card if process_entry.run_card is not None else catalog.run_card,
+                f"{collider_id}_{model_id}_{process_id}", lambda: native_defaults()[0],
+                lambda: _installed_pdf_choices(str(toolchain.mg5_executable)),
             )
+            param_options = process_entry.param_card
+            if param_options is None:
+                param_options = model_entry.param_card
+            if param_options is None:
+                param_options = catalog.param_card
+            param_card_overrides = _render_param_card_editor(
+                param_options, f"{collider_id}_{model_id}_{process_id}", lambda: native_defaults()[1],
+            )
+            if is_full:
+                card_key = f"{collider_id}_{model_id}_{process_id}"
+                shower_options = process_entry.shower_card or catalog.shower_card
+                detector_options = process_entry.detector_card or catalog.detector_card
+                shower_card_text, shower_valid = _render_text_card_editor(
+                    shower_options, "Pythia shower card", f"shower_{card_key}", catalog._source,
+                    lambda: shower_template(toolchain.mg5_executable).read_text(),
+                    validator=validate_shower_card,
+                )
+                detector_card_text, detector_valid = _render_text_card_editor(
+                    detector_options, "Delphes detector card", f"detector_{card_key}_{output_detail}",
+                    catalog._source,
+                    lambda: render_delphes_card(resolve_detector_card(
+                        HepSimulationConfig(detector_card=detector_card), toolchain).read_text(), output_detail),
+                )
+                extra_cards_valid = shower_valid and detector_valid
         if not backend_ready:
             st.info(
                 f"{toolchain.detail}. Start the app with `docker compose -f "
@@ -456,7 +763,8 @@ def _render_local_simulator() -> None:
                 else ("Run full HEP pipeline" if is_full else "Run MadGraph")
             ),
             type="primary",
-            disabled=job_active or not backend_ready,
+            disabled=(job_active or not backend_ready or run_card_overrides is None
+                      or param_card_overrides is None or not extra_cards_valid),
             width="stretch",
         )
 
@@ -486,11 +794,14 @@ def _render_local_simulator() -> None:
                                 if model_entry.ufo_path else None),
                 run_mode="full" if is_full else "madgraph",
                 beam_energy_gev=beam_energy,
-                min_mass_gev=min_mass,
-                max_mass_gev=max_mass,
+                beam2_energy_gev=beam2_energy,
                 detector_id=detector_id,
                 detector_card=detector_card,
                 output_detail=output_detail,
+                run_card_overrides=run_card_overrides,
+                param_card_overrides=param_card_overrides,
+                shower_card_text=shower_card_text,
+                detector_card_text=detector_card_text,
             )
         existing = matching_run(submitted_config, _run_root(), toolchain.image_id)
         st.session_state.pop("duplicate_run", None)
@@ -545,8 +856,8 @@ def _render_simulation_results() -> None:
                    f"(`{manifest['run_id']}`)")
         metric_columns = st.columns(3)
         metric_columns[0].metric("Generated events", manifest["generated_events"])
-        accepted = manifest.get("accepted_events", manifest.get("accepted_dileptons"))
-        metric_columns[1].metric("Available dilepton events", accepted)
+        accepted = manifest.get("analysis_events", manifest.get("accepted_events", manifest.get("accepted_dileptons")))
+        metric_columns[1].metric("Available analysis events", accepted)
         cross_section = manifest.get("cross_section_pb")
         uncertainty = manifest.get("cross_section_uncertainty_pb")
         if cross_section is None:
@@ -614,7 +925,7 @@ def _sample_config_summary(sample: AnalysisSample) -> str:
     config = sample.config
     mode = "Full pipeline" if config.get("run_mode") == "full" else "MadGraph only"
     energy = config.get("beam_energy_gev")
-    energy_text = f" · {2 * float(energy):g} GeV √s" if isinstance(energy, int | float) else ""
+    energy_text = f" · {com_energy(float(energy), config.get('beam2_energy_gev')):g} GeV √s" if isinstance(energy, int | float) else ""
     cross_section = (
         f"{sample.cross_section_pb:.5g} pb"
         if sample.cross_section_pb is not None
@@ -631,6 +942,9 @@ def _sample_config_summary(sample: AnalysisSample) -> str:
 def _render_sample_details(
     samples: list[AnalysisSample], title: str = "Selected sample configurations"
 ) -> None:
+    messages = compatibility_warnings(samples)
+    if messages:
+        st.warning(" ".join(messages))
     with st.expander(title, expanded=False):
         for sample in samples:
             st.markdown(f"**{sample.label}** (`{sample.sample_id}`)")
@@ -800,6 +1114,7 @@ def _render_dataset_plot(
         summary_rows = []
         for sample in selected_samples:
             frame = frames[sample.sample_id]
+            frame = frame.loc[np.isfinite(pd.to_numeric(frame[column], errors="coerce"))]
             weights = pd.to_numeric(frame.get("weight", pd.Series(1.0, index=frame.index)))
             source_integral = float(weights.sum())
             if not expected_yields and source_integral > 0.0:
@@ -877,7 +1192,7 @@ def _render_discovery_estimate(
             help="Includes all backgrounds as well as the effect being tested. The two samples are never added.",
         )
     if not alternative_options:
-        st.info("No compatible alternative is available. Match the collider, energy, detector and generator acceptance.")
+        st.info("No compatible alternative is available. Match the collision setup and simulation level, and supply normalization metadata.")
         return
     if alternative_id is None:
         st.info("Choose a complete alternative prediction to continue.")

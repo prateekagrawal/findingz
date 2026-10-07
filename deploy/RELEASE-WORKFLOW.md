@@ -46,6 +46,50 @@ the installed package to test it. Existing saved notebooks do not update.
 
 ## Current pending release
 
+### Published course configuration restored — 2026-09-30
+
+- The active course catalogue and analysis-variable configuration match the
+  fetched course repository revision `1a22906696ba06ec27e301ddc3bdccc716957fed`.
+  MARK II, LHC, LEP and Higgs-factory presets are available; advanced card
+  editors remain hidden. This replaces the temporary MARK-II-only setting.
+- The full local regression suite passes (one optional-dependency test skipped).
+  The running web container successfully loads the restored catalogue and passes
+  its health check. Earlier local simulation and notebook checks are recorded below.
+- Before freezing 0.2.0, commit and record the app/course revisions and validate
+  the matching image on CIT: a small MARK II run, reopening its saved sample,
+  and execution of an exported notebook with a plot. CIT acceptance is pending.
+- Raw MadGraph-directory importing and full-pipeline validation for the new beam
+  examples remain outside this release's verified scope.
+
+### Card customization added to the 0.2.0 candidate — 2026-09-30
+
+- Catalogue schema 2 adds optional run/parameter defaults and editable entries,
+  plus course-supplied and student-editable Pythia/Delphes cards. Existing schema-1
+  catalogues remain supported. Existing saved samples remain readable; the new
+  analysis schema changes identities for newly generated runs.
+- New run identities and manifests record edits; effective native cards are
+  retained. Collision setup, analysis level and normalization constrain counting;
+  generation/shower/detector differences produce nonblocking warnings. Model
+  parameter differences remain available for hypothesis comparisons.
+- A local 100-event QED full-pipeline smoke run completed through MadGraph,
+  Pythia and Delphes with all four card customizations: 10.23 pb and 80 selected
+  reconstructed pairs. This is an integration check, not a physics benchmark or
+  CIT acceptance test. The sample was discoverable through FindingZ's run loader.
+- Local testing verified schema 2; the active course catalogue has since returned
+  to schema 1 with advanced card editors hidden at the instructor's request.
+  `config/card_customization.example.yaml` documents how to expose them later.
+  Do not deploy schema-2 content to CIT ahead of this application build.
+- Raw MadGraph directory import remains future work. Scripted runs through
+  `run_hep_simulation` already produce FindingZ-compatible samples; examples and
+  current analysis limitations are in `EXTERNAL-COURSE-CONTENT.md`.
+
+Local activation on 2026-09-30: rebuilt and restarted both Compose services.
+The browser loads all four card editors, both services are healthy, and all 8
+saved runs and 61 notebooks remain in persistent storage. Both notebook kernels
+(`findingz` and `python3`) passed real execution checks for imports, cell state,
+sample loading, text output and inline Matplotlib plots. This is local validation;
+the CIT image and kernel registration have not been verified by these checks.
+
 ### FindingZ 0.2.0 candidate — 2026-09-21
 
 Publish both repositories on the existing `codex/initial-layout` branch, as

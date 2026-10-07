@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .beams import BeamType, BEAM_PDFS, com_energy
+
 import gzip
 import hashlib
 import json
@@ -21,9 +23,16 @@ from .generator_details import retain_generator_details
 from .external_models import ufo_digest
 from . import __version__
 from .physics import add_observables
+from .object_summary import summarize_objects, empty_pair
 from .simulation import SimulationRun
+from .run_card import RunCardValue, apply_overrides, validate_overrides
+from .param_card import (
+    ParamCardValue, apply_overrides as apply_param_overrides,
+    validate_overrides as validate_param_overrides,
+)
+from .text_cards import validate_card_text, validate_shower_card
 
-HepCollider = Literal["pp", "ee"]
+HepCollider = BeamType
 HepRunMode = Literal["madgraph", "full"]
 DetectorProfile = Literal["standard", "advanced"]
 MAX_HEP_EVENTS = 10_000
@@ -45,15 +54,36 @@ class HepSimulationConfig(BaseModel):
     process_lines: list[str] = Field(default_factory=list, max_length=8)
     run_mode: HepRunMode = "full"
     beam_energy_gev: float = Field(default=6_500.0, ge=10.0, le=50_000.0)
-    min_mass_gev: float = Field(default=50.0, ge=10.0, le=200.0)
-    max_mass_gev: float = Field(default=130.0, ge=20.0, le=1_000.0)
+    beam2_energy_gev: float | None = Field(default=None, ge=10.0, le=50_000.0)
+    # Retained for reproducing old runs; new runs leave MadGraph cuts unchanged.
+    min_mass_gev: float | None = Field(default=None, ge=0.0)
+    max_mass_gev: float | None = Field(default=None, gt=0.0)
     detector_id: str = Field(default="cms", pattern=r"^[A-Za-z0-9_-]+$")
     detector_card: str = Field(default="cards/delphes_card_CMS.tcl", min_length=1)
     output_detail: DetectorProfile = "standard"
+    run_card_overrides: dict[str, RunCardValue] = Field(default_factory=dict)
+    param_card_overrides: dict[str, ParamCardValue] = Field(default_factory=dict)
+    shower_card_text: str | None = None
+    detector_card_text: str | None = None
 
     @model_validator(mode="after")
     def validate_mass_window(self) -> HepSimulationConfig:
-        if self.min_mass_gev >= self.max_mass_gev:
+        if self.collider not in {"pp", "ee"} and not self.process_lines:
+            raise ValueError("New beam types require explicit process_lines matching the incoming beams")
+        validate_overrides(self.run_card_overrides)
+        validate_param_overrides(self.param_card_overrides)
+        for text in (self.shower_card_text, self.detector_card_text):
+            if text is not None:
+                validate_card_text(text)
+        if self.shower_card_text is not None:
+            validate_shower_card(self.shower_card_text)
+        if self.run_mode != "full" and (self.shower_card_text is not None or self.detector_card_text is not None):
+            raise ValueError("Shower and detector card edits require a full-pipeline run")
+        if ((self.min_mass_gev is not None and "mmll" in self.run_card_overrides)
+                or (self.max_mass_gev is not None and "mmllmax" in self.run_card_overrides)):
+            raise ValueError("Specify mass cuts through either legacy fields or run_card_overrides")
+        if (self.min_mass_gev is not None and self.max_mass_gev is not None
+                and self.min_mass_gev >= self.max_mass_gev):
             raise ValueError("min_mass_gev must be smaller than max_mass_gev")
         detector_path = Path(self.detector_card)
         if detector_path.is_absolute() or ".." in detector_path.parts:
@@ -191,7 +221,7 @@ def render_madgraph_process_card(config: HepSimulationConfig, process_dir: Path,
 
 
 def render_madevent_commands(config: HepSimulationConfig, run_name: str) -> str:
-    lpp = 1 if config.collider == "pp" else 0
+    lpp1, lpp2 = BEAM_PDFS[config.collider]
     pipeline_switches = (
         ["shower=Pythia8", "detector=Delphes"]
         if config.run_mode == "full"
@@ -207,12 +237,12 @@ def render_madevent_commands(config: HepSimulationConfig, run_name: str) -> str:
             *pipeline_switches,
             f"set nevents {config.events}",
             f"set iseed {config.seed}",
-            f"set lpp1 {lpp}",
-            f"set lpp2 {lpp}",
+            f"set lpp1 {lpp1}",
+            f"set lpp2 {lpp2}",
             f"set ebeam1 {config.beam_energy_gev:.8g}",
-            f"set ebeam2 {config.beam_energy_gev:.8g}",
-            f"set mmll {config.min_mass_gev:.8g}",
-            f"set mmllmax {config.max_mass_gev:.8g}",
+            f"set ebeam2 {(config.beam2_energy_gev or config.beam_energy_gev):.8g}",
+            *([f"set mmll {config.min_mass_gev:.8g}"] if config.min_mass_gev is not None else []),
+            *([f"set mmllmax {config.max_mass_gev:.8g}"] if config.max_mass_gev is not None else []),
             "done",
             "",
         ]
@@ -288,13 +318,24 @@ def _pipeline_hash(config: HepSimulationConfig, image_id: str) -> str:
     payload = {
         "schema_version": 2,
         "config": config.model_dump(mode="json", exclude={"label"}),
+        "analysis_schema": 2,
         "image_id": image_id,
     }
+    if config.beam2_energy_gev is None:
+        payload["config"].pop("beam2_energy_gev", None)
+    # Empty card options do not introduce additional identity differences.
+    if not config.run_card_overrides:
+        payload["config"].pop("run_card_overrides", None)
+    if not config.param_card_overrides:
+        payload["config"].pop("param_card_overrides", None)
+    for field in ("shower_card_text", "detector_card_text"):
+        if getattr(config, field) is None:
+            payload["config"].pop(field, None)
     if config.model_ufo_path:
         payload["ufo_sha256"] = ufo_digest(config.model_ufo_path)
     else:
         payload["config"].pop("model_ufo_path", None)
-    if config.run_mode == "full":
+    if config.run_mode == "full" and config.detector_card_text is None:
         configured = os.environ.get("FINDINGZ_CARD_ROOT")
         root = Path(configured).expanduser() if configured else Path(__file__).parent / "resources"
         card = (root / config.detector_card).resolve()
@@ -403,7 +444,7 @@ def _apply_standard_retention(run_dir: Path, manifest: dict[str, object]) -> Non
 
 
 def extract_lhe_truth(lhe_path: Path) -> pd.DataFrame:
-    """Extract final-state ee/mumu pairs from an LHE checkpoint."""
+    """Keep each LHE event, summarize final objects and any selected dilepton pair."""
     opener = gzip.open if lhe_path.suffix == ".gz" else Path.open
     rows: list[dict[str, object]] = []
     in_event = False
@@ -418,8 +459,20 @@ def extract_lhe_truth(lhe_path: Path) -> pd.DataFrame:
                 if event_lines:
                     particles = _parse_lhe_event(event_lines)
                     row = _lhe_pair_row(len(rows), particles)
-                    if row is not None:
-                        rows.append(row)
+                    if row is None:
+                        row = {"event_id": len(rows), "channel": "other", "weight": 1.0,
+                               "source": "madgraph_lhe", **empty_pair()}
+                    final = [p for p in particles if p["status"] == 1]
+                    for name, pids in (("electron", {11}), ("muon", {13}),
+                                       ("photon", {22}), ("parton", {1, 2, 3, 4, 5, 21})):
+                        objects = []
+                        for particle in final:
+                            if abs(int(particle["pid"])) in pids:
+                                pt = math.hypot(particle["px"], particle["py"])
+                                objects.append((pt, math.asinh(particle["pz"] / max(pt, 1e-12)),
+                                                math.atan2(particle["py"], particle["px"]), particle["mass"]))
+                        row.update(summarize_objects(name, objects))
+                    rows.append(row)
                 in_event = False
             elif in_event and line and not line.startswith("#"):
                 event_lines.append(line)
@@ -483,7 +536,7 @@ def _lhe_pair_row(
 
 
 def extract_delphes_dileptons(root_path: Path) -> pd.DataFrame:
-    """Convert pinned Delphes Electron/Muon branches into the FindingZ CSV schema."""
+    """Keep each Delphes event with object summaries and an optional dilepton pair."""
     try:
         import awkward as ak
         import uproot
@@ -496,16 +549,34 @@ def extract_delphes_dileptons(root_path: Path) -> pd.DataFrame:
     with uproot.open(root_path) as root_file:
         tree = root_file["Delphes"]
         collections = {}
-        for name in ("Electron", "Muon"):
+        for name in ("Electron", "Muon", "Photon", "Jet", "MissingET"):
+            fields = ("MET", "Phi") if name == "MissingET" else ("PT", "Eta", "Phi")
+            if not all(f"{name}.{field}" in tree for field in fields):
+                continue
             collections[name] = {
                 field: ak.to_list(tree[f"{name}.{field}"].array(library="ak"))
-                for field in ("PT", "Eta", "Phi", "Charge")
+                for field in (*fields, "Charge", "Mass") if f"{name}.{field}" in tree
             }
         event_count = int(tree.num_entries)
 
     for event_id in range(event_count):
+        summary = {}
+        for name in ("Electron", "Muon", "Photon", "Jet"):
+            if name not in collections:
+                continue
+            values = collections[name]
+            pts = values["PT"][event_id]
+            masses = values["Mass"][event_id] if "Mass" in values else [
+                {"Electron": 0.000511, "Muon": 0.10566, "Photon": 0.0}.get(name, float("nan"))] * len(pts)
+            summary.update(summarize_objects(name.lower(), list(zip(
+                pts, values["Eta"][event_id], values["Phi"][event_id], masses))))
+        if "MissingET" in collections:
+            values = collections["MissingET"]
+            summary["met"] = values["MET"][event_id][0] if values["MET"][event_id] else float("nan")
         candidates: list[tuple[float, str, list[tuple[float, float, float, int]]]] = []
         for name, channel, flavor in [("Electron", "ee", "e"), ("Muon", "mumu", "mu")]:
+            if name not in collections or "Charge" not in collections[name]:
+                continue
             values = collections[name]
             objects = list(
                 zip(
@@ -525,6 +596,9 @@ def extract_delphes_dileptons(root_path: Path) -> pd.DataFrame:
                 best = max(pairs, key=lambda pair: float(pair[0][0]) + float(pair[1][0]))
                 candidates.append((sum(float(item[0]) for item in best), channel, best))
         if not candidates:
+            rows.append({"event_id": event_id, "channel": "other", "weight": 1.0,
+                         "source": "madgraph_pythia8_delphes", "accepted": True,
+                         **empty_pair(), **summary})
             continue
         _, channel, pair = max(candidates, key=lambda item: item[0])
         flavor = "e" if channel == "ee" else "mu"
@@ -549,6 +623,7 @@ def extract_delphes_dileptons(root_path: Path) -> pd.DataFrame:
                     f"l{index}_flavor": flavor,
                 }
             )
+        row.update(summary)
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -648,16 +723,29 @@ def run_hep_simulation(
             timeout_s=timeout_s,
         )
         notify("Process code generated; preparing the event run", 0.25)
+        if config.run_card_overrides:
+            native_run_card = process_dir / "Cards" / "run_card.dat"
+            edited_card = apply_overrides(native_run_card.read_text(), config.run_card_overrides)
+            native_run_card.write_text(edited_card)
+            (cards_dir / "requested_run_card.dat").write_text(edited_card)
+        if config.param_card_overrides:
+            native_param_card = process_dir / "Cards" / "param_card.dat"
+            edited_card = apply_param_overrides(native_param_card.read_text(), config.param_card_overrides)
+            native_param_card.write_text(edited_card)
+            (cards_dir / "requested_param_card.dat").write_text(edited_card)
         detector_card_path: Path | None = None
         if config.run_mode == "full":
             notify("Preparing the collider detector card", 0.30)
-            base_detector_card = resolve_detector_card(config, toolchain)
-            detector_card = render_delphes_card(
-                base_detector_card.read_text(), config.output_detail
-            )
+            detector_card = config.detector_card_text
+            if detector_card is None:
+                base_detector_card = resolve_detector_card(config, toolchain)
+                detector_card = render_delphes_card(base_detector_card.read_text(), config.output_detail)
             detector_card_path = cards_dir / "delphes_card.dat"
             detector_card_path.write_text(detector_card)
             (process_dir / "Cards" / "delphes_card.dat").write_text(detector_card)
+            if config.shower_card_text is not None:
+                (process_dir / "Cards" / "pythia8_card.dat").write_text(config.shower_card_text)
+                (cards_dir / "requested_pythia8_card.dat").write_text(config.shower_card_text)
         madevent_card = cards_dir / "madevent_commands.txt"
         madevent_card.write_text(render_madevent_commands(config, "run_01"))
         long_stage = (
@@ -682,10 +770,10 @@ def run_hep_simulation(
         )
         _copy_checkpoint(lhe_source, lhe_path)
 
-        notify("Extracting parton-level dilepton objects", 0.78)
+        notify("Extracting parton-level objects", 0.78)
         truth = extract_lhe_truth(lhe_path)
         if truth.empty:
-            raise RuntimeError("No final-state ee or mumu pair was found in the LHE output")
+            raise RuntimeError("No events were found in the LHE output")
         truth.to_csv(truth_path, index=False)
         event_log = logs_dir / "event_generation.log"
         cross_section_pb, cross_section_uncertainty_pb = extract_cross_section(event_log)
@@ -712,7 +800,7 @@ def run_hep_simulation(
             notify("Extracting reconstructed Delphes objects", 0.89)
             detector = extract_delphes_dileptons(root_path)
             if detector.empty:
-                raise RuntimeError("No opposite-sign ee or mumu pair was found in Delphes output")
+                raise RuntimeError("No events were found in Delphes output")
             detector.to_csv(detector_path, index=False)
             analysis_input = detector
             stages.update(
@@ -731,8 +819,10 @@ def run_hep_simulation(
             {
                 "status": "finalizing",
                 "generated_events": config.events,
-                "truth_dileptons": len(truth),
-                "accepted_dileptons": len(analysis),
+                "truth_dileptons": int(truth["channel"].isin(["ee", "mumu"]).sum()),
+                "accepted_dileptons": int(analysis["channel"].isin(["ee", "mumu"]).sum()),
+                "analysis_events": len(analysis),
+                "analysis_schema": 2,
                 "cross_section_pb": cross_section_pb,
                 "cross_section_uncertainty_pb": cross_section_uncertainty_pb,
                 "stages": stages,
